@@ -9,11 +9,11 @@ sys.path.insert(0, python_dir)
 from ccxt import nobitex
 
 def main():
-    # 1. Create exchange object
+
     exchange = nobitex()
     print("✅ Exchange Name:", exchange.name)
     
-    # 2. Simulate markets (no internet required)
+
     exchange.markets = {
         'BTC/IRT': {
             'id': 'btc-rls',
@@ -25,7 +25,7 @@ def main():
         }
     }
     
-    # 3. Fake data that Nobitex usually returns
+
     fake_nobitex_ticker = {
         "isClosed": False,
         "lastPrice": "5000000000",
@@ -39,7 +39,7 @@ def main():
     }
     
     try:
-        # 4. Test the parse_ticker method you wrote
+
         market = exchange.market('BTC/IRT')
         parsed_ticker = exchange.parse_ticker(fake_nobitex_ticker, market)
         
