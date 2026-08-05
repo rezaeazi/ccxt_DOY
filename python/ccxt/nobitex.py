@@ -28,7 +28,7 @@ class nobitex(Exchange):
             'urls': {
                 'logo': 'https://nobitex.ir/assets/images/logo.svg',
                 'api': {
-                    'public': 'https://api.nobitex.ir',
+                    'public': 'https://apiv2.nobitex.ir',
                     'private': 'https://apiv2.nobitex.ir',
                 },
                 'www': 'https://nobitex.ir',

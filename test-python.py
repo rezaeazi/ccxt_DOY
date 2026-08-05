@@ -20,10 +20,11 @@ def test_method(name, func):
     except NetworkError:
         print("Code is correct, but local network is blocking api.nobitex.ir. (Will work on server)")
     except Exception as e:
-        print(f"❌ Error: {e}")
+        print(f"Error: {e}")
 
 def main():
-    exchange = nobitex({'apiKey': 'YOUR_TOKEN'})
+
+    exchange = nobitex({'apiKey': 'Put_Here'})
     
     print("Exchange ID:", exchange.id)
     print("Exchange Name:", exchange.name)
@@ -36,7 +37,7 @@ def main():
     test_method("fetchOrderBook (BTC/RLS)", lambda: exchange.fetch_order_book('BTC/RLS'))
     test_method("fetchTrades (BTC/RLS)", lambda: exchange.fetch_trades('BTC/RLS'))
 
-    if exchange.apiKey and exchange.apiKey != 'YOUR_TOKEN':
+    if exchange.apiKey and exchange.apiKey != 'Your_Token':
         print("\n" + "="*40)
         print("Testing Private Methods")
         print("="*40)
@@ -45,6 +46,8 @@ def main():
         test_method("fetchTransactionsHistory", lambda: exchange.fetch_transactions_history())
         test_method("fetchFavoriteMarkets", lambda: exchange.fetch_favorite_markets())
         test_method("fetchOpenOrders", lambda: exchange.fetch_open_orders())
+    else:
+        print("\nℹ️ To test Private methods, please replace your Nobitex token in the code.")
 
 if __name__ == '__main__':
     main()
