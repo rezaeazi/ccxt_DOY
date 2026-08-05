@@ -17,6 +17,7 @@ class nobitex(Exchange):
                 'swap': False,
                 'future': False,
                 'fetchMarkets': True,
+                'fetchTickers': True, # اضافه شد
                 'fetchTicker': True,
                 'fetchOrderBook': True,
                 'fetchTrades': True,
@@ -76,8 +77,11 @@ class nobitex(Exchange):
         if api == 'private':
             if not self.apiKey:
                 raise AuthenticationError('Nobitex requires apiKey')
-            headers['Authorization'] = '25bdb775a838154399e51433c17ce5a1f1073053' + self.apiKey
-            
+            headers['Authorization'] = 'Token ' + self.apiKey
+            # اضافه کردن Content-Type برای رفع ارور 401 در متدهای POST
+            if method == 'POST':
+                headers['Content-Type'] = 'application/x-www-form-urlencoded'
+                
         return {'url': url, 'method': method, 'body': body, 'headers': headers}
 
     def fetch_markets(self, params={}):
@@ -126,22 +130,22 @@ class nobitex(Exchange):
             'symbol': symbol,
             'timestamp': timestamp,
             'datetime': self.iso8601(timestamp),
-            'high': self.safe_number(ticker, 'dayHigh'),  
-            'low': self.safe_number(ticker, 'dayLow'),   
+            'high': self.safe_number(ticker, 'dayHigh'),
+            'low': self.safe_number(ticker, 'dayLow'),
             'bid': self.safe_number(ticker, 'bestBuy'),
             'bidVolume': None,
             'ask': self.safe_number(ticker, 'bestSell'),
             'askVolume': None,
             'vwap': None,
-            'open': self.safe_number(ticker, 'dayOpen'), 
+            'open': self.safe_number(ticker, 'dayOpen'),
             'close': self.safe_number(ticker, 'latest'),
             'last': self.safe_number(ticker, 'latest'),
             'previousClose': None,
             'change': None,
             'percentage': self.safe_number(ticker, 'dayChange'),
             'average': None,
-            'baseVolume': self.safe_number(ticker, 'volumeSrc'),  
-            'quoteVolume': self.safe_number(ticker, 'volumeDst'), 
+            'baseVolume': self.safe_number(ticker, 'volumeSrc'),
+            'quoteVolume': self.safe_number(ticker, 'volumeDst'),
             'info': ticker,
         }
 
@@ -158,20 +162,33 @@ class nobitex(Exchange):
         ticker = self.safe_value(stats, market_id, {})
         return self.parse_ticker(ticker, market)
 
+    # متد جدید برای گرفتن قیمت تمام ارزها
+    def fetch_tickers(self, symbols=None, params={}):
+        self.load_markets()
+        response = self.request('market/stats', 'public', 'GET', params)
+        stats = self.safe_value(response, 'stats', {})
+        keys = list(stats.keys())
+        result = {}
+        for i in range(0, len(keys)):
+            market_id = keys[i]
+            market = self.safe_value(self.markets_by_id, market_id)
+            if market is None:
+                continue
+            ticker = self.parse_ticker(stats[market_id], market)
+            result[market['symbol']] = ticker
+        return result
+
     def parse_order_book(self, orderbook, symbol, timestamp=None):
         bids = self.safe_value(orderbook, 'bids', [])
         asks = self.safe_value(orderbook, 'asks', [])
-        
         parsed_bids = []
         for bid in bids:
             if len(bid) >= 2:
                 parsed_bids.append([self.parse_number(bid[0]), self.parse_number(bid[1])])
-                
         parsed_asks = []
         for ask in asks:
             if len(ask) >= 2:
                 parsed_asks.append([self.parse_number(ask[0]), self.parse_number(ask[1])])
-                
         return {
             'symbol': symbol,
             'bids': parsed_bids,
@@ -184,7 +201,7 @@ class nobitex(Exchange):
     def fetch_order_book(self, symbol, limit=None, params={}):
         self.load_markets()
         market = self.market(symbol)
-        request_symbol = market['baseId'].lower() + market['quoteId'].lower() 
+        request_symbol = market['baseId'].upper() + market['quoteId'].upper()
         response = self.request('v3/orderbook/' + request_symbol, 'public', 'GET', params)
         timestamp = self.milliseconds()
         return self.parse_order_book(response, symbol, timestamp)
@@ -196,11 +213,9 @@ class nobitex(Exchange):
         side = self.safe_string_lower(trade, 'type')
         if side not in ['buy', 'sell']:
             side = None
-            
         cost = None
         if price is not None and amount is not None:
             cost = price * amount
-            
         return {
             'id': self.safe_string(trade, 'id'),
             'info': trade,
@@ -220,7 +235,7 @@ class nobitex(Exchange):
     def fetch_trades(self, symbol, since=None, limit=None, params={}):
         self.load_markets()
         market = self.market(symbol)
-        request_symbol = market['baseId'].lower() + market['quoteId'].lower() 
+        request_symbol = market['baseId'].upper() + market['quoteId'].upper()
         response = self.request('v2/trades/' + request_symbol, 'public', 'GET', params)
         trades = self.safe_value(response, 'trades', response)
         return self.parse_trades(trades, market, since, limit)
@@ -230,7 +245,6 @@ class nobitex(Exchange):
         response = self.request('users/wallets/list', 'private', 'POST', params)
         wallets = self.safe_value(response, 'wallets', [])
         result = {'info': response}
-        
         for wallet in wallets:
             currency_id = self.safe_string(wallet, 'currency')
             code = self.safe_currency_code(currency_id)
@@ -239,9 +253,7 @@ class nobitex(Exchange):
             used = None
             if total is not None and free is not None:
                 used = total - free
-                
             result[code] = {'free': free, 'used': used, 'total': total}
-            
         return self.safe_balance(result)
 
     def parse_order_status(self, status):
@@ -291,7 +303,6 @@ class nobitex(Exchange):
         }
         if price is not None:
             request['price'] = price
-            
         response = self.request('market/orders/add', 'private', 'POST', self.extend(request, params))
         order = self.safe_value(response, 'order', response)
         return self.parse_order(order, market)
@@ -305,14 +316,12 @@ class nobitex(Exchange):
         self.load_markets()
         market = None
         request = {'status': 'open'}
-        
         if symbol:
             market = self.market(symbol)
             request.update({
                 'srcCurrency': market['baseId'],
                 'dstCurrency': market['quoteId'],
             })
-            
         response = self.request('market/orders/list', 'private', 'POST', self.extend(request, params))
         orders = self.safe_value(response, 'orders', [])
         return self.parse_orders(orders, market, since, limit)

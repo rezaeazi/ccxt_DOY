@@ -20,6 +20,7 @@ export default class nobitex extends Exchange {
                 'swap': false,
                 'future': false,
                 'fetchMarkets': true,
+                'fetchTickers': true, // اضافه شد
                 'fetchTicker': true,
                 'fetchOrderBook': true,
                 'fetchTrades': true,
@@ -32,7 +33,7 @@ export default class nobitex extends Exchange {
                 'logo': 'https://nobitex.ir/assets/images/logo.svg',
                 'api': {
                     'public': 'https://api.nobitex.ir',
-                    'private': 'https://api.nobitex.ir',
+                    'private': 'https://apiv2.nobitex.ir',
                 },
                 'www': 'https://nobitex.ir',
                 'doc': [
@@ -51,12 +52,15 @@ export default class nobitex extends Exchange {
                 'private': {
                     'get': [
                         'users/profile',
+                        'users/transactions-history',
+                        'users/markets/favorite',
                     ],
                     'post': [
                         'users/wallets/list',
                         'market/orders/add',
                         'market/orders/cancel',
                         'market/orders/list',
+                        'users/accounts-add',
                     ],
                 },
             },
@@ -73,18 +77,25 @@ export default class nobitex extends Exchange {
             }
         }
 
+        if (headers === undefined) {
+            headers = {};
+        }
+
+        headers['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36';
+
         if (api === 'private') {
             this.checkRequiredCredentials();
-            headers = {
-                'Authorization': 'Token ' + this.apiKey,
-            };
+            headers['Authorization'] = 'Token ' + this.apiKey;
+            if (method === 'POST') {
+                headers['Content-Type'] = 'application/x-www-form-urlencoded';
+            }
         }
 
         return { 'url': url, 'method': method, 'body': body, 'headers': headers };
     }
 
     async fetchMarkets(params = {}) {
-        const response = await this.publicGetMarketStats(params);
+        const response = await this.request('market/stats', 'public', 'GET', params);
         const stats = this.safeValue(response, 'stats', {});
         const keys = Object.keys(stats);
         const result = [];
@@ -146,41 +157,33 @@ export default class nobitex extends Exchange {
     }
 
     parseTicker(ticker, market = undefined) {
-        const timestamp = undefined;
+        const timestamp = this.milliseconds();
         const marketId = this.safeString(market, 'id');
         let symbol = this.safeString(market, 'symbol');
         if (symbol === undefined) {
             symbol = marketId;
         }
         
-        const last = this.safeString(ticker, 'latest');
-        const open = this.safeString(ticker, 'open');
-        const high = this.safeString(ticker, 'high');
-        const low = this.safeString(ticker, 'low');
-        const close = last;
-        const baseVolume = this.safeString(ticker, 'dayVolume');
-        const quoteVolume = this.safeString(ticker, 'dayVolumePrice');
-        
         return {
             'symbol': symbol,
             'timestamp': timestamp,
             'datetime': this.iso8601(timestamp),
-            'high': this.parseNumber(high),
-            'low': this.parseNumber(low),
-            'bid': this.parseNumber(undefined),
-            'bidVolume': this.parseNumber(undefined),
-            'ask': this.parseNumber(undefined),
-            'askVolume': this.parseNumber(undefined),
+            'high': this.parseNumber(this.safeString(ticker, 'dayHigh')),
+            'low': this.parseNumber(this.safeString(ticker, 'dayLow')),
+            'bid': this.parseNumber(this.safeString(ticker, 'bestBuy')),
+            'bidVolume': undefined,
+            'ask': this.parseNumber(this.safeString(ticker, 'bestSell')),
+            'askVolume': undefined,
             'vwap': undefined,
-            'open': this.parseNumber(open),
-            'close': this.parseNumber(close),
-            'last': this.parseNumber(last),
+            'open': this.parseNumber(this.safeString(ticker, 'dayOpen')),
+            'close': this.parseNumber(this.safeString(ticker, 'latest')),
+            'last': this.parseNumber(this.safeString(ticker, 'latest')),
             'previousClose': undefined,
             'change': undefined,
-            'percentage': undefined,
+            'percentage': this.parseNumber(this.safeString(ticker, 'dayChange')),
             'average': undefined,
-            'baseVolume': this.parseNumber(baseVolume),
-            'quoteVolume': this.parseNumber(quoteVolume),
+            'baseVolume': this.parseNumber(this.safeString(ticker, 'volumeSrc')),
+            'quoteVolume': this.parseNumber(this.safeString(ticker, 'volumeDst')),
             'info': ticker,
         };
     }
@@ -194,13 +197,33 @@ export default class nobitex extends Exchange {
             'dstCurrency': market['quoteId'],
         };
         
-        const response = await this.publicGetMarketStats(this.extend(request, params));
+        const response = await this.request('market/stats', 'public', 'GET', this.extend(request, params));
         const stats = this.safeValue(response, 'stats', {});
         
         const tickerKey = market['baseId'] + '-' + market['quoteId'];
         const ticker = this.safeValue(stats, tickerKey, {});
         
         return this.parseTicker(ticker, market);
+    }
+
+    // متد جدید برای گرفتن قیمت تمام ارزها
+    async fetchTickers(symbols = undefined, params = {}) {
+        await this.loadMarkets();
+        const response = await this.request('market/stats', 'public', 'GET', params);
+        const stats = this.safeValue(response, 'stats', {});
+        const keys = Object.keys(stats);
+        const result = {};
+        
+        for (let i = 0; i < keys.length; i++) {
+            const marketId = keys[i];
+            const market = this.safeValue(this.markets_by_id, marketId);
+            if (market === undefined) {
+                continue;
+            }
+            const ticker = this.parseTicker(stats[marketId], market);
+            result[market['symbol']] = ticker;
+        }
+        return result;
     }
 
     parseOrderBook(orderbook, symbol) {
@@ -222,10 +245,10 @@ export default class nobitex extends Exchange {
         const market = this.market(symbol);
         
         const request = {
-            'symbol': market['baseId'].toLowerCase() + market['quoteId'].toLowerCase(),
+            'symbol': market['baseId'].toUpperCase() + market['quoteId'].toUpperCase(),
         };
         
-        const response = await this.publicGetV3OrderbookSymbol(this.extend(request, params));
+        const response = await this.request('v3/orderbook/' + request['symbol'], 'public', 'GET', params);
         const orderbook = this.parseOrderBook(response, market['symbol']);
         
         return orderbook;
@@ -259,15 +282,15 @@ export default class nobitex extends Exchange {
         await this.loadMarkets();
         const market = this.market(symbol);
         const request = {
-            'symbol': market['baseId'].toLowerCase() + market['quoteId'].toLowerCase(),
+            'symbol': market['baseId'].toUpperCase() + market['quoteId'].toUpperCase(),
         };
-        const response = await this.publicGetV2TradesSymbol(this.extend(request, params));
+        const response = await this.request('v2/trades/' + request['symbol'], 'public', 'GET', params);
         return this.parseTrades(response, market, since, limit);
     }
 
     async fetchBalance(params = {}) {
         await this.loadMarkets();
-        const response = await this.privatePostUsersWalletsList(params);
+        const response = await this.request('users/wallets/list', 'private', 'POST', params);
         const wallets = this.safeValue(response, 'wallets', []);
         const result = { 'info': response };
 
@@ -325,7 +348,7 @@ export default class nobitex extends Exchange {
             'price': price,
         };
         
-        const response = await this.privatePostMarketOrdersAdd(this.extend(request, params));
+        const response = await this.request('market/orders/add', 'private', 'POST', this.extend(request, params));
         
         return this.parseOrder(response, market);
     }
@@ -335,7 +358,7 @@ export default class nobitex extends Exchange {
         const request = {
             'order': id,
         };
-        const response = await this.privatePostMarketOrdersCancel(this.extend(request, params));
+        const response = await this.request('market/orders/cancel', 'private', 'POST', this.extend(request, params));
         return response;
     }
 
@@ -352,7 +375,7 @@ export default class nobitex extends Exchange {
             request['srcCurrency'] = market['baseId'];
             request['dstCurrency'] = market['quoteId'];
         }
-        const response = await this.privatePostMarketOrdersList(this.extend(request, params));
+        const response = await this.request('market/orders/list', 'private', 'POST', this.extend(request, params));
         const orders = this.safeValue(response, 'orders', []);
         return this.parseOrders(orders, market, since, limit);
     }
