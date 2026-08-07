@@ -17,7 +17,7 @@ class nobitex(Exchange):
                 'swap': False,
                 'future': False,
                 'fetchMarkets': True,
-                'fetchTickers': True, # اضافه شد
+                'fetchTickers': True,
                 'fetchTicker': True,
                 'fetchOrderBook': True,
                 'fetchTrades': True,
@@ -78,7 +78,7 @@ class nobitex(Exchange):
             if not self.apiKey:
                 raise AuthenticationError('Nobitex requires apiKey')
             headers['Authorization'] = 'Token ' + self.apiKey
-            # اضافه کردن Content-Type برای رفع ارور 401 در متدهای POST
+            # Add Content-Type to fix 401 error in POST methods
             if method == 'POST':
                 headers['Content-Type'] = 'application/x-www-form-urlencoded'
                 
@@ -149,33 +149,16 @@ class nobitex(Exchange):
             'info': ticker,
         }
 
+    # Method to fetch prices for all coins
     def fetch_tickers(self, symbols=None, params={}):
         self.load_markets()
         result = {}
-        # استفاده از دیتای قبلاً لود شده در load_markets برای جلوگیری از Rate Limit نوبیتکس
+        # Use previously loaded data in load_markets to prevent Nobitex Rate Limit
         for symbol in self.markets:
             market = self.markets[symbol]
             info = self.safe_value(market, 'info')
             if info is not None:
                 result[symbol] = self.parse_ticker(info, market)
-        return result
-
-    # متد جدید برای گرفتن قیمت تمام ارزها
-    def fetch_tickers(self, symbols=None, params={}):
-        self.load_markets()
-        response = self.request('market/stats', 'public', 'GET', params)
-        stats = self.safe_value(response, 'stats', {})
-        result = {}
-        
-        # بررسی امن برای اینکه مطمئن بشیم stats یک دیکشنری هست
-        if isinstance(stats, dict):
-            for market_id in stats:
-                if market_id in self.markets_by_id:
-                    market = self.markets_by_id[market_id]
-                    if isinstance(market, dict):
-                        ticker = self.parse_ticker(stats[market_id], market)
-                        result[market['symbol']] = ticker
-                        
         return result
 
     def parse_order_book(self, orderbook, symbol, timestamp=None):
