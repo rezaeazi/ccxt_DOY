@@ -32,7 +32,7 @@ export default class nobitex extends Exchange {
             'urls': {
                 'logo': 'https://nobitex.ir/assets/images/logo.svg',
                 'api': {
-                    'public': 'https://api.nobitex.ir',
+                    'public': 'https://apiv2.nobitex.ir',
                     'private': 'https://apiv2.nobitex.ir',
                 },
                 'www': 'https://nobitex.ir',
@@ -188,22 +188,18 @@ export default class nobitex extends Exchange {
         };
     }
 
-    async fetchTicker(symbol, params = {}) {
+    async fetchTickers(symbols = undefined, params = {}) {
         await this.loadMarkets();
-        const market = this.market(symbol);
-        
-        const request = {
-            'srcCurrency': market['baseId'],
-            'dstCurrency': market['quoteId'],
-        };
-        
-        const response = await this.request('market/stats', 'public', 'GET', this.extend(request, params));
-        const stats = this.safeValue(response, 'stats', {});
-        
-        const tickerKey = market['baseId'] + '-' + market['quoteId'];
-        const ticker = this.safeValue(stats, tickerKey, {});
-        
-        return this.parseTicker(ticker, market);
+        const result = {};
+        // استفاده از دیتای قبلاً لود شده برای جلوگیری از Rate Limit
+        for (const symbol in this.markets) {
+            const market = this.markets[symbol];
+            const info = this.safeValue(market, 'info');
+            if (info !== undefined) {
+                result[symbol] = this.parseTicker(info, market);
+            }
+        }
+        return result;
     }
 
     // متد جدید برای گرفتن قیمت تمام ارزها

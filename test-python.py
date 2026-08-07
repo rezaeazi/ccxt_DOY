@@ -18,22 +18,29 @@ def main():
     print("="*40)
     
     try:
-        # گرفتن قیمت تمام ارزها
-        all_tickers = exchange.fetch_tickers()
-        print(f"✅ Success! Fetched {len(all_tickers)} coins.")
-        print("\n--- Sample Prices (Last Price in RLS) ---")
+        markets = exchange.fetch_markets()
+        print(f"✅ Markets fetched: {len(markets)} coins.")
         
-        # نمایش چند ارز معروف
+        if len(markets) == 0:
+            print("\n❌ Nobitex returned 0 markets. Your IP is rate limited. Please wait 1 minute and run again.")
+            return
+            
+        print("\n--- Sample Prices (Buy, Sell, Last) ---")
         sample_coins = ['BTC/RLS', 'ETH/RLS', 'USDT/RLS', 'DOGE/RLS', 'SHIB/RLS']
-        for symbol in sample_coins:
-            if symbol in all_tickers:
-                ticker = all_tickers[symbol]
-                print(f"{symbol}: {ticker['last']} RLS")
+        
+        for market in markets:
+            symbol = market['symbol']
+            if symbol in sample_coins:
+                ticker = exchange.parse_ticker(market['info'], market)
+                print(f"\n{symbol}:")
+                print(f"  Buy Price (Bid):  {ticker.get('bid')} RLS")
+                print(f"  Sell Price (Ask): {ticker.get('ask')} RLS")
+                print(f"  Last Price:       {ticker.get('last')} RLS")
                 
     except NetworkError:
-        print("⚠️ Code is correct, but local network is blocking api.nobitex.ir. (Will work on server)")
+        print("Code is correct, but local network is blocking api.nobitex.ir. (Will work on server)")
     except Exception as e:
-        print(f"❌ Error: {e}")
+        print(f"Error: {e}")
 
 if __name__ == '__main__':
     main()

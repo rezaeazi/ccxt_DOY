@@ -149,33 +149,33 @@ class nobitex(Exchange):
             'info': ticker,
         }
 
-    def fetch_ticker(self, symbol, params={}):
+    def fetch_tickers(self, symbols=None, params={}):
         self.load_markets()
-        market = self.market(symbol)
-        request = {
-            'srcCurrency': market['baseId'],
-            'dstCurrency': market['quoteId'],
-        }
-        response = self.request('market/stats', 'public', 'GET', self.extend(request, params))
-        stats = self.safe_value(response, 'stats', {})
-        market_id = market['baseId'] + '-' + market['quoteId']
-        ticker = self.safe_value(stats, market_id, {})
-        return self.parse_ticker(ticker, market)
+        result = {}
+        # استفاده از دیتای قبلاً لود شده در load_markets برای جلوگیری از Rate Limit نوبیتکس
+        for symbol in self.markets:
+            market = self.markets[symbol]
+            info = self.safe_value(market, 'info')
+            if info is not None:
+                result[symbol] = self.parse_ticker(info, market)
+        return result
 
     # متد جدید برای گرفتن قیمت تمام ارزها
     def fetch_tickers(self, symbols=None, params={}):
         self.load_markets()
         response = self.request('market/stats', 'public', 'GET', params)
         stats = self.safe_value(response, 'stats', {})
-        keys = list(stats.keys())
         result = {}
-        for i in range(0, len(keys)):
-            market_id = keys[i]
-            market = self.safe_value(self.markets_by_id, market_id)
-            if market is None:
-                continue
-            ticker = self.parse_ticker(stats[market_id], market)
-            result[market['symbol']] = ticker
+        
+        # بررسی امن برای اینکه مطمئن بشیم stats یک دیکشنری هست
+        if isinstance(stats, dict):
+            for market_id in stats:
+                if market_id in self.markets_by_id:
+                    market = self.markets_by_id[market_id]
+                    if isinstance(market, dict):
+                        ticker = self.parse_ticker(stats[market_id], market)
+                        result[market['symbol']] = ticker
+                        
         return result
 
     def parse_order_book(self, orderbook, symbol, timestamp=None):
