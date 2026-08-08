@@ -1,5 +1,5 @@
 from ccxt.base.exchange import Exchange
-from ccxt.base.errors import AuthenticationError
+from ccxt.base.errors import AuthenticationError, OrderNotFound, NotSupported
 
 class nobitex(Exchange):
 
@@ -17,14 +17,21 @@ class nobitex(Exchange):
                 'swap': False,
                 'future': False,
                 'fetchMarkets': True,
-                'fetchTickers': True,
                 'fetchTicker': True,
+                'fetchTickers': True,
                 'fetchOrderBook': True,
+                'fetchOHLCV': False,  # Not supported by Nobitex API
                 'fetchTrades': True,
                 'fetchBalance': True,
                 'createOrder': True,
+                'fetchOrder': True,
                 'cancelOrder': True,
                 'fetchOpenOrders': True,
+                'fetchClosedOrders': True,
+                'fetchOrders': True,
+                'fetchMyTrades': True,
+                'fetchTradingFee': False, # Not supported dynamically
+                'fetchTradingFees': False, # Not supported dynamically
             },
             'urls': {
                 'logo': 'https://nobitex.ir/assets/images/logo.svg',
@@ -56,6 +63,7 @@ class nobitex(Exchange):
                         'market/orders/add',
                         'market/orders/cancel',
                         'market/orders/list',
+                        'market/orders/update-status',
                         'users/accounts-add',
                     ],
                 },
@@ -78,7 +86,6 @@ class nobitex(Exchange):
             if not self.apiKey:
                 raise AuthenticationError('Nobitex requires apiKey')
             headers['Authorization'] = 'Token ' + self.apiKey
-            # Add Content-Type to fix 401 error in POST methods
             if method == 'POST':
                 headers['Content-Type'] = 'application/x-www-form-urlencoded'
                 
@@ -149,11 +156,22 @@ class nobitex(Exchange):
             'info': ticker,
         }
 
-    # Method to fetch prices for all coins
+    def fetch_ticker(self, symbol, params={}):
+        self.load_markets()
+        market = self.market(symbol)
+        request = {
+            'srcCurrency': market['baseId'],
+            'dstCurrency': market['quoteId'],
+        }
+        response = self.request('market/stats', 'public', 'GET', self.extend(request, params))
+        stats = self.safe_value(response, 'stats', {})
+        market_id = market['baseId'] + '-' + market['quoteId']
+        ticker = self.safe_value(stats, market_id, {})
+        return self.parse_ticker(ticker, market)
+
     def fetch_tickers(self, symbols=None, params={}):
         self.load_markets()
         result = {}
-        # Use previously loaded data in load_markets to prevent Nobitex Rate Limit
         for symbol in self.markets:
             market = self.markets[symbol]
             info = self.safe_value(market, 'info')
@@ -188,6 +206,9 @@ class nobitex(Exchange):
         response = self.request('v3/orderbook/' + request_symbol, 'public', 'GET', params)
         timestamp = self.milliseconds()
         return self.parse_order_book(response, symbol, timestamp)
+
+    def fetch_ohlcv(self, symbol, timeframe='1d', since=None, limit=None, params={}):
+        raise NotSupported('Nobitex API does not support OHLCV data.')
 
     def parse_trade(self, trade, market=None):
         timestamp = self.safe_timestamp(trade, 'time')
@@ -295,19 +316,43 @@ class nobitex(Exchange):
         response = self.request('market/orders/update-status', 'private', 'POST', self.extend(request, params))
         return response
 
-    def fetch_open_orders(self, symbol=None, since=None, limit=None, params={}):
+    def fetch_order(self, id, symbol=None, params={}):
+        self.load_markets()
+        orders = self.fetch_orders(symbol=symbol, params=params)
+        for order in orders:
+            if order['id'] == str(id):
+                return order
+        raise OrderNotFound('Order not found: ' + str(id))
+
+    def fetch_orders(self, symbol=None, since=None, limit=None, params={}):
         self.load_markets()
         market = None
-        request = {'status': 'open'}
+        request = {}
         if symbol:
             market = self.market(symbol)
-            request.update({
-                'srcCurrency': market['baseId'],
-                'dstCurrency': market['quoteId'],
-            })
+            request['srcCurrency'] = market['baseId']
+            request['dstCurrency'] = market['quoteId']
         response = self.request('market/orders/list', 'private', 'POST', self.extend(request, params))
         orders = self.safe_value(response, 'orders', [])
         return self.parse_orders(orders, market, since, limit)
+
+    def fetch_open_orders(self, symbol=None, since=None, limit=None, params={}):
+        request = {'status': 'open'}
+        return self.fetch_orders(symbol, since, limit, self.extend(request, params))
+
+    def fetch_closed_orders(self, symbol=None, since=None, limit=None, params={}):
+        request = {'status': 'done'}
+        return self.fetch_orders(symbol, since, limit, self.extend(request, params))
+
+    def fetch_my_trades(self, symbol=None, since=None, limit=None, params={}):
+        request = {'status': 'done'}
+        return self.fetch_orders(symbol, since, limit, self.extend(request, params))
+
+    def fetch_trading_fee(self, symbol, params={}):
+        raise NotSupported('Nobitex API does not support dynamic trading fees.')
+
+    def fetch_trading_fees(self, params={}):
+        raise NotSupported('Nobitex API does not support dynamic trading fees.')
 
     def fetch_profile(self, params={}):
         return self.request('users/profile', 'private', 'GET', params)

@@ -9,57 +9,81 @@ from ccxt import nobitex
 from ccxt.base.errors import NetworkError
 
 def main():
-    # Note: Replace with your actual API key
-    exchange = nobitex({'apiKey': 'Your_Token'})
+    # Place your NEW valid Nobitex token here
+    exchange = nobitex({'apiKey': '25bdb775a838154399e51433c17ce5a1f1073053'})
     
     print("Exchange ID:", exchange.id)
     print("Exchange Name:", exchange.name)
-    print("\n" + "="*50)
-    print("Top 20 Global Cryptos Live Prices")
-    print("="*50)
     
     try:
-        # Send only one request to the server to avoid Rate Limit
+        # Send only one request to fetch all markets and prices
         markets = exchange.fetch_markets()
         if len(markets) == 0:
-            print("Nobitex returned 0 markets. Please wait 1 minute and run again.")
+            print("Nobitex returned 0 markets. Your IP is rate limited. Please wait 1 minute and run again.")
             return
 
-        # Convert markets list to a dictionary for faster access
         markets_dict = {m['symbol']: m for m in markets}
 
-        # List of top 20 global cryptos
+        # ==========================================
+        # 1. Display Account Info (Requires valid Token)
+        # ==========================================
+        print("\n" + "="*50)
+        print("🔒 Account Information")
+        print("="*50)
+        
+        if exchange.apiKey != 'YOUR_NEW_TOKEN':
+            try:
+                # Fetch Balance
+                balance = exchange.fetch_balance()
+                non_zero_balances = {k: v for k, v in balance.items() if k != 'info' and v.get('total') not in [None, 0]}
+                print("Wallet Balances:")
+                if not non_zero_balances:
+                    print("  (No balances found)")
+                else:
+                    for currency, amounts in non_zero_balances.items():
+                        print(f"  {currency}: Free: {amounts.get('free')}, Used: {amounts.get('used')}, Total: {amounts.get('total')}")
+                
+                # Fetch My Trades Count
+                my_trades = exchange.fetch_my_trades()
+                print(f"\nTotal Executed Trades: {len(my_trades)}")
+                
+            except Exception as e:
+                print(f"Error fetching account data: {e}")
+        else:
+            print("ℹ️ Please replace 'YOUR_NEW_TOKEN' with your actual Nobitex API key to see account data.")
+
+        # ==========================================
+        # 2. Display Top 20 Cryptos Prices (USD & RLS)
+        # ==========================================
+        print("\n" + "="*50)
+        print("Top 20 Global Cryptos Live Prices")
+        print("="*50)
+
         top_20_coins = [
             'BTC', 'ETH', 'USDT', 'BNB', 'SOL', 'XRP', 'ADA', 'DOGE', 'TRX', 'DOT',
-            'MATIC', 'LTC', 'BCH', 'AVAX', 'LINK', 'ATOM', 'UNI', 'SHIB', 'NEAR', 'FIL'
+            'LTC', 'BCH', 'AVAX', 'LINK', 'ATOM', 'UNI', 'SHIB', 'NEAR', 'FIL', 'MATIC'
         ]
         
         for coin in top_20_coins:
             print(f"\n--- {coin} ---")
             
-            # 1. Display global price (in USDT)
+            # 1. Global Price (in USDT)
             symbol_usdt = f'{coin}/USDT'
             if symbol_usdt in markets_dict:
                 market = markets_dict[symbol_usdt]
-                # Parse raw data into standard CCXT format
                 ticker = exchange.parse_ticker(market['info'], market)
-                print(f"  Global ({symbol_usdt}):")
-                print(f"    Last Price: {ticker.get('last')} USDT")
+                print(f"  Global Price ({symbol_usdt}): {ticker.get('last')} USDT")
             else:
-                print(f"  Global ({symbol_usdt}): Not available on Nobitex")
+                print(f"  Global Price ({symbol_usdt}): Not available")
                 
-            # 2. Display Iran price (in RLS)
+            # 2. Iran Price (in RLS)
             symbol_rls = f'{coin}/RLS'
             if symbol_rls in markets_dict:
                 market = markets_dict[symbol_rls]
-                # Parse raw data into standard CCXT format
                 ticker = exchange.parse_ticker(market['info'], market)
-                print(f"  Iran ({symbol_rls}):")
-                print(f"    Buy Price (Bid):  {ticker.get('bid')} RLS")
-                print(f"    Sell Price (Ask): {ticker.get('ask')} RLS")
-                print(f"    Last Price:       {ticker.get('last')} RLS")
+                print(f"  Iran Price ({symbol_rls}): {ticker.get('last')} RLS")
             else:
-                print(f"  Iran ({symbol_rls}): Not available on Nobitex")
+                print(f"  Iran Price ({symbol_rls}): Not available")
                 
     except NetworkError:
         print("Code is correct, but local network is blocking api.nobitex.ir. (Will work on server)")

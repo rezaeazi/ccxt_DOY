@@ -1,4 +1,5 @@
 import Exchange from './base/Exchange.js';
+import { OrderNotFound, NotSupported } from './base/errors.js';
 
 export default class nobitex extends Exchange {
 
@@ -20,14 +21,21 @@ export default class nobitex extends Exchange {
                 'swap': false,
                 'future': false,
                 'fetchMarkets': true,
-                'fetchTickers': true,
                 'fetchTicker': true,
+                'fetchTickers': true,
                 'fetchOrderBook': true,
+                'fetchOHLCV': false,  // Not supported by Nobitex API
                 'fetchTrades': true,
                 'fetchBalance': true,
                 'createOrder': true,
+                'fetchOrder': true,
                 'cancelOrder': true,
                 'fetchOpenOrders': true,
+                'fetchClosedOrders': true,
+                'fetchOrders': true,
+                'fetchMyTrades': true,
+                'fetchTradingFee': false, // Not supported dynamically
+                'fetchTradingFees': false, // Not supported dynamically
             },
             'urls': {
                 'logo': 'https://nobitex.ir/assets/images/logo.svg',
@@ -60,6 +68,7 @@ export default class nobitex extends Exchange {
                         'market/orders/add',
                         'market/orders/cancel',
                         'market/orders/list',
+                        'market/orders/update-status',
                         'users/accounts-add',
                     ],
                 },
@@ -188,11 +197,27 @@ export default class nobitex extends Exchange {
         };
     }
 
-    // Method to fetch prices for all coins
+    async fetchTicker(symbol, params = {}) {
+        await this.loadMarkets();
+        const market = this.market(symbol);
+        
+        const request = {
+            'srcCurrency': market['baseId'],
+            'dstCurrency': market['quoteId'],
+        };
+        
+        const response = await this.request('market/stats', 'public', 'GET', this.extend(request, params));
+        const stats = this.safeValue(response, 'stats', {});
+        
+        const tickerKey = market['baseId'] + '-' + market['quoteId'];
+        const ticker = this.safeValue(stats, tickerKey, {});
+        
+        return this.parseTicker(ticker, market);
+    }
+
     async fetchTickers(symbols = undefined, params = {}) {
         await this.loadMarkets();
         const result = {};
-        // Using previously loaded data to prevent Rate Limit issues
         for (const symbol in this.markets) {
             const market = this.markets[symbol];
             const info = this.safeValue(market, 'info');
@@ -229,6 +254,10 @@ export default class nobitex extends Exchange {
         const orderbook = this.parseOrderBook(response, market['symbol']);
         
         return orderbook;
+    }
+
+    async fetchOHLCV(symbol, timeframe = '1d', since = undefined, limit = undefined, params = {}) {
+        throw new NotSupported('Nobitex API does not support OHLCV data.');
     }
 
     parseTrade(trade, market = undefined) {
@@ -288,9 +317,21 @@ export default class nobitex extends Exchange {
         return this.safeBalance(result);
     }
 
+    parseOrderStatus(status) {
+        const statuses = {
+            'open': 'open',
+            'active': 'open',
+            'done': 'closed',
+            'filled': 'closed',
+            'canceled': 'canceled',
+            'cancelled': 'canceled',
+        };
+        return statuses[status] || status;
+    }
+
     parseOrder(order, market = undefined) {
         const id = this.safeString(order, 'id');
-        const timestamp = this.safeTimestamp(order, 'time');
+        const timestamp = this.safeTimestamp(order, 'createdAt');
         const symbol = this.safeString(market, 'symbol');
         const amount = this.safeString(order, 'amount');
         const price = this.safeString(order, 'price');
@@ -301,14 +342,19 @@ export default class nobitex extends Exchange {
             'id': id,
             'timestamp': timestamp,
             'datetime': this.iso8601(timestamp),
+            'lastTradeTimestamp': undefined,
+            'status': this.parseOrderStatus(this.safeString(order, 'status')),
             'symbol': symbol,
-            'type': 'limit',
+            'type': this.safeString(order, 'type'),
+            'timeInForce': undefined,
             'side': side,
             'price': this.parseNumber(price),
             'amount': this.parseNumber(amount),
-            'filled': undefined,
+            'filled': this.safeNumber(order, 'filledAmount'),
             'remaining': undefined,
-            'status': 'open',
+            'cost': undefined,
+            'average': undefined,
+            'trades': [],
             'fee': undefined,
         };
     }
@@ -318,42 +364,90 @@ export default class nobitex extends Exchange {
         const market = this.market(symbol);
         
         const request = {
-            'type': side,
+            'type': type,
             'srcCurrency': market['baseId'],
             'dstCurrency': market['quoteId'],
             'amount': amount,
-            'price': price,
+            'side': side,
         };
         
-        const response = await this.request('market/orders/add', 'private', 'POST', this.extend(request, params));
+        if (price !== undefined) {
+            request['price'] = price;
+        }
         
-        return this.parseOrder(response, market);
+        const response = await this.request('market/orders/add', 'private', 'POST', this.extend(request, params));
+        const order = this.safeValue(response, 'order', response);
+        return this.parseOrder(order, market);
     }
 
     async cancelOrder(id, symbol = undefined, params = {}) {
         await this.loadMarkets();
         const request = {
             'order': id,
+            'status': 'canceled',
         };
-        const response = await this.request('market/orders/cancel', 'private', 'POST', this.extend(request, params));
+        const response = await this.request('market/orders/update-status', 'private', 'POST', this.extend(request, params));
         return response;
     }
 
-    async fetchOpenOrders(symbol = undefined, since = undefined, limit = undefined, params = {}) {
+    async fetchOrder(id, symbol = undefined, params = {}) {
+        await this.loadMarkets();
+        const orders = await this.fetchOrders(symbol, undefined, undefined, params);
+        for (let i = 0; i < orders.length; i++) {
+            if (orders[i]['id'] === String(id)) {
+                return orders[i];
+            }
+        }
+        throw new OrderNotFound('Order not found: ' + String(id));
+    }
+
+    async fetchOrders(symbol = undefined, since = undefined, limit = undefined, params = {}) {
         await this.loadMarkets();
         let market = undefined;
+        const request = {};
         if (symbol !== undefined) {
             market = this.market(symbol);
-        }
-        const request = {
-            'status': 'open',
-        };
-        if (market !== undefined) {
             request['srcCurrency'] = market['baseId'];
             request['dstCurrency'] = market['quoteId'];
         }
         const response = await this.request('market/orders/list', 'private', 'POST', this.extend(request, params));
         const orders = this.safeValue(response, 'orders', []);
         return this.parseOrders(orders, market, since, limit);
+    }
+
+    async fetchOpenOrders(symbol = undefined, since = undefined, limit = undefined, params = {}) {
+        const request = { 'status': 'open' };
+        return this.fetchOrders(symbol, since, limit, this.extend(request, params));
+    }
+
+    async fetchClosedOrders(symbol = undefined, since = undefined, limit = undefined, params = {}) {
+        const request = { 'status': 'done' };
+        return this.fetchOrders(symbol, since, limit, this.extend(request, params));
+    }
+
+    async fetchMyTrades(symbol = undefined, since = undefined, limit = undefined, params = {}) {
+        const request = { 'status': 'done' };
+        return this.fetchOrders(symbol, since, limit, this.extend(request, params));
+    }
+
+    async fetchTradingFee(symbol, params = {}) {
+        throw new NotSupported('Nobitex API does not support dynamic trading fees.');
+    }
+
+    async fetchTradingFees(params = {}) {
+        throw new NotSupported('Nobitex API does not support dynamic trading fees.');
+    }
+
+    async fetchProfile(params = {}) {
+        return await this.request('users/profile', 'private', 'GET', params);
+    }
+
+    async fetchTransactionsHistory(params = {}) {
+        const response = await this.request('users/transactions-history', 'private', 'GET', params);
+        return this.safeValue(response, 'transactions', []);
+    }
+
+    async fetchFavoriteMarkets(params = {}) {
+        return await this.request('users/markets/favorite', 'private', 'GET', params);
     }
 }
