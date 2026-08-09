@@ -20,7 +20,7 @@ class nobitex(Exchange):
                 'fetchTicker': True,
                 'fetchTickers': True,
                 'fetchOrderBook': True,
-                'fetchOHLCV': False,  # Not supported by Nobitex API
+                'fetchOHLCV': False,
                 'fetchTrades': True,
                 'fetchBalance': True,
                 'createOrder': True,
@@ -30,8 +30,8 @@ class nobitex(Exchange):
                 'fetchClosedOrders': True,
                 'fetchOrders': True,
                 'fetchMyTrades': True,
-                'fetchTradingFee': False, # Not supported dynamically
-                'fetchTradingFees': False, # Not supported dynamically
+                'fetchTradingFee': False,
+                'fetchTradingFees': False,
             },
             'urls': {
                 'logo': 'https://nobitex.ir/assets/images/logo.svg',

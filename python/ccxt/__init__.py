@@ -276,7 +276,7 @@ exchanges = [
     'mudrex',
     'myokx',
     'ndax',
-    'nobitex'
+    'nobitex',
     'okx',
     'okxus',
     'onetrading',

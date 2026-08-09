@@ -149,6 +149,7 @@ from ccxt.async_support.modetrade import modetrade                              
 from ccxt.async_support.mudrex import mudrex                                    # noqa: F401
 from ccxt.async_support.myokx import myokx                                      # noqa: F401
 from ccxt.async_support.ndax import ndax                                        # noqa: F401
+from ccxt.async_support.nobitex import nobitex                                  # noqa: F401
 from ccxt.async_support.okx import okx                                          # noqa: F401
 from ccxt.async_support.okxus import okxus                                      # noqa: F401
 from ccxt.async_support.onetrading import onetrading                            # noqa: F401
@@ -255,6 +256,7 @@ exchanges = [
     'mudrex',
     'myokx',
     'ndax',
+    'nobitex',
     'okx',
     'okxus',
     'onetrading',
