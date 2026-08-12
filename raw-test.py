@@ -2,7 +2,7 @@ import requests
 
 def test_nobitex_token():
 
-    token = '25bdb775a838154399e51433c17ce5a1f1073053'
+    token = 'your_token'
     
     token = token.strip()
     

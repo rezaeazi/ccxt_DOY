@@ -74,9 +74,6 @@ class nobitex(Exchange):
         url = self.urls['api'][api] + '/' + self.implode_params(path, params)
         query = self.omit(params, self.extract_params(path))
         
-        if query and method == 'GET':
-            url += '?' + self.urlencode(query)
-            
         if headers is None:
             headers = {}
             
@@ -85,12 +82,21 @@ class nobitex(Exchange):
         if api == 'private':
             if not self.apiKey:
                 raise AuthenticationError('Nobitex requires apiKey')
+            
             headers['Authorization'] = 'Token ' + self.apiKey
+                
             if method == 'POST':
-                headers['Content-Type'] = 'application/x-www-form-urlencoded'
+                # نوبیتکس برای متدهای POST حتماً فرمت JSON می‌خواهد
+                # ما body را در اینجا به صورت دستی به JSON تبدیل می‌کنیم تا CCXT آن را به Form-Data تبدیل نکند
+                headers['Content-Type'] = 'application/json'
+                body = self.json(query)
+                
+        elif method == 'GET':
+            if query:
+                url += '?' + self.urlencode(query)
                 
         return {'url': url, 'method': method, 'body': body, 'headers': headers}
-
+    
     def fetch_markets(self, params={}):
         response = self.request('market/stats', 'public', 'GET', params)
         stats = self.safe_value(response, 'stats', {})
@@ -121,8 +127,8 @@ class nobitex(Exchange):
                 'active': True,
                 'precision': {'amount': 8, 'price': 1},
                 'limits': {
-                    'amount': {'min': None, 'max': None},
-                    'price': {'min': None, 'max': None},
+                    'amount': {'min': 0.00000001, 'max': None},
+                    'price': {'min': 0.00000001, 'max': None},
                     'cost': {'min': None, 'max': None},
                 },
                 'info': stats[market_id],
@@ -299,15 +305,27 @@ class nobitex(Exchange):
         self.load_markets()
         market = self.market(symbol)
         request = {
-            'type': type,
+            'type': side,
             'srcCurrency': market['baseId'],
             'dstCurrency': market['quoteId'],
-            'amount': amount,
-            'side': side,
+            'amount': str(amount),
         }
-        if price is not None:
-            request['price'] = price
+        
+        if type == 'limit':
+            if price is not None:
+                request['price'] = str(price)
+        elif type == 'market':
+            request['mode'] = 'market'
+            
         response = self.request('market/orders/add', 'private', 'POST', self.extend(request, params))
+        
+        # بررسی اینکه آیا سرور نوبیتکس ارور داده یا خیر
+        status = self.safe_string(response, 'status')
+        if status != 'ok':
+            code = self.safe_string(response, 'code')
+            message = self.safe_string(response, 'message')
+            raise Exception(f"Nobitex Error: {code} - {message}")
+            
         order = self.safe_value(response, 'order', response)
         return self.parse_order(order, market)
 
