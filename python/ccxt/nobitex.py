@@ -86,8 +86,8 @@ class nobitex(Exchange):
             headers['Authorization'] = 'Token ' + self.apiKey
                 
             if method == 'POST':
-                # نوبیتکس برای متدهای POST حتماً فرمت JSON می‌خواهد
-                # ما body را در اینجا به صورت دستی به JSON تبدیل می‌کنیم تا CCXT آن را به Form-Data تبدیل نکند
+                # Nobitex strictly requires JSON format for POST methods
+                # We manually convert the body to JSON here so CCXT doesn't convert it to Form-Data
                 headers['Content-Type'] = 'application/json'
                 body = self.json(query)
                 
@@ -319,7 +319,7 @@ class nobitex(Exchange):
             
         response = self.request('market/orders/add', 'private', 'POST', self.extend(request, params))
         
-        # بررسی اینکه آیا سرور نوبیتکس ارور داده یا خیر
+        # Check if the Nobitex server returned an error
         status = self.safe_string(response, 'status')
         if status != 'ok':
             code = self.safe_string(response, 'code')

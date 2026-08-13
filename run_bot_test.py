@@ -2,7 +2,7 @@ import time
 from bot_manager import TradingBotManager
 
 def main():
-    NOBITEX_TOKEN = 'Your_Token'.strip()
+    NOBITEX_TOKEN = 'Your_Token_Here'.strip()
     
     if NOBITEX_TOKEN == 'YOUR_TOKEN_HERE':
         print("❌ Please place your Nobitex Token in the code!")
@@ -46,7 +46,7 @@ def main():
                     
                 print(f"Placing {side} order at limit price: {limit_price:,.2f}")
                 
-                # فعال کردن حالت شبیه سازی (simulate=True)
+                # Enable simulation mode (simulate=True)
                 order = bot.place_order(symbol, side, amount, limit_price, simulate=True)
                 
                 if order and order.get('id'):
@@ -62,7 +62,7 @@ def main():
             
         elif choice == '3':
             print("\n⏳ Cancelling all open orders...")
-            # برای پاک کردن سفارشات شبیه سازی شده هم این متد را آپدیت کنید
+            # Clear simulated orders if they exist
             if hasattr(bot, 'sim_orders'):
                 bot.sim_orders = []
                 print("✅ Simulated orders cleared.")

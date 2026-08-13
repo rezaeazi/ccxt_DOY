@@ -4,7 +4,7 @@ import time
 from datetime import datetime
 from collections import defaultdict
 
-# اضافه کردن مسیر پوشه پایتون برای پیدا کردن فایل nobitex
+# Add the python directory path to find the nobitex file
 current_dir = os.path.dirname(os.path.abspath(__file__))
 python_dir = os.path.join(current_dir, 'python')
 sys.path.insert(0, python_dir)
@@ -13,7 +13,7 @@ from ccxt import nobitex
 
 class TradingBotManager:
     def __init__(self, api_key, secret=None):
-        """راه‌اندازی اتصال به صرافی نوبیتکس"""
+        """Initialize connection to Nobitex exchange"""
         config = {'apiKey': api_key}
         if secret:
             config['secret'] = secret
@@ -26,18 +26,18 @@ class TradingBotManager:
             print(f"❌ Error connecting to Nobitex: {e}")
 
     def place_order(self, symbol, side, amount, price, simulate=False):
-        """۱. ثبت سفارش اسپات (Limit)"""
+        """1. Place a spot (Limit) order"""
         print(f"\n[Placing Spot Order] {side.upper()} {amount} {symbol} @ {price}")
         try:
             order = self.exchange.create_order(symbol, 'limit', side, amount, price)
             print(f"✅ Order placed successfully. Order ID: {order.get('id')}")
             return order
         except Exception as e:
-            # اگر کاربر خواست تست شبیه سازی انجام دهد و ارور مربوط به موجودی باشد
+            # If the user wants to run a simulation test and the error is related to insufficient balance
             if simulate and "OverValueOrder" in str(e):
                 print("⚠️ Insufficient balance detected. Running in SIMULATION MODE...")
                 market = self.exchange.market(symbol)
-                # ساخت یک سفارش فیک برای تست
+                # Create a fake order for testing
                 fake_id = f"SIM-{int(time.time())}"
                 fake_order_data = {
                     'id': fake_id,
@@ -52,7 +52,7 @@ class TradingBotManager:
                 }
                 order = self.exchange.parse_order(fake_order_data, market)
                 
-                # ذخیره در لیست شبیه سازی شده
+                # Save to the simulated orders list
                 if not hasattr(self, 'sim_orders'):
                     self.sim_orders = []
                 self.sim_orders.append(order)
@@ -64,12 +64,12 @@ class TradingBotManager:
                 return None
 
     def get_open_orders(self, symbol=None):
-        """۲. گرفتن لیست سفارشات اسپات باز"""
+        """2. Fetch list of open spot orders"""
         print("\n[Fetching Open Orders]")
         try:
             orders = self.exchange.fetch_open_orders(symbol)
             
-            # اضافه کردن سفارشات شبیه سازی شده به لیست
+            # Add simulated orders to the list
             if hasattr(self, 'sim_orders') and self.sim_orders:
                 orders.extend(self.sim_orders)
                 
@@ -82,7 +82,7 @@ class TradingBotManager:
             return []
 
     def cancel_order(self, order_id, symbol=None):
-        """۳. لغو یک سفارش خاص باز"""
+        """3. Cancel a specific open order"""
         print(f"\n[Cancelling Order ID: {order_id}]")
         try:
             res = self.exchange.cancel_order(order_id, symbol)
@@ -93,10 +93,10 @@ class TradingBotManager:
             return None
 
     def cancel_all_open_orders(self, symbol=None):
-        """۴. بستن (لغو) تمامی سفارشات باز کاربر"""
+        """4. Close (cancel) all user's open orders"""
         print("\n[Cancelling All Open Orders]")
         try:
-            # اول لیست سفارشات باز رو می‌گیریم
+            # First, fetch the list of open orders
             open_orders = self.exchange.fetch_open_orders(symbol)
             
             if not open_orders:
@@ -123,7 +123,7 @@ class TradingBotManager:
             return False
 
     def get_trade_history(self, symbol=None, limit=50):
-        """۵. گرفتن تاریخچه معاملات انجام شده اسپات"""
+        """5. Fetch executed spot trade history"""
         print("\n[Fetching Trade History]")
         try:
             trades = self.exchange.fetch_my_trades(symbol, limit=limit)
@@ -134,14 +134,14 @@ class TradingBotManager:
             return []
 
     def calculate_pnl(self, trades):
-        """۶. محاسبه سود و زیان (روزانه، ماهانه، سالانه)"""
+        """6. Calculate Profit and Loss (daily, monthly, yearly)"""
         print("\n[Calculating Profit and Loss (PnL)]")
         
         if not trades:
             print("No trades to calculate.")
             return None
 
-        # استفاده از دیکشنری تو در تو برای دسته بندی بر اساس واحد (USDT/RLS) و تاریخ
+        # Using nested dictionaries to group by currency (USDT/RLS) and date
         pnl_data = {
             'daily': defaultdict(lambda: defaultdict(float)),
             'monthly': defaultdict(lambda: defaultdict(float)),
@@ -150,24 +150,24 @@ class TradingBotManager:
         }
         
         for trade in trades:
-            cost = trade.get('cost')  # مقدار کل معامله (قیمت * حجم)
-            side = trade.get('side')  # buy یا sell
+            cost = trade.get('cost')  # Total trade value (price * amount)
+            side = trade.get('side')  # buy or sell
             timestamp = trade.get('timestamp')
             market = trade.get('symbol', '')
             
-            # استخراج واحد پایه (مثلا USDT یا RLS از BTC/USDT)
+            # Extract quote currency (e.g., USDT or RLS from BTC/USDT)
             quote_currency = market.split('/')[-1] if '/' in market else 'UNKNOWN'
             
             if cost is None or side is None or timestamp is None:
                 continue
                 
-            # تبدیل تایم‌استمپ به تاریخ
+            # Convert timestamp to datetime
             dt = datetime.fromtimestamp(timestamp / 1000.0)
             
-            # محاسبه جریان نقدی (فروش = پول در آمده، خرید = پول خارج شده)
+            # Calculate cash flow (sell = money in, buy = money out)
             trade_value = float(cost) if side == 'sell' else -float(cost)
             
-            # دسته بندی‌ها
+            # Categories
             day_key = dt.strftime('%Y-%m-%d')
             month_key = dt.strftime('%Y-%m')
             year_key = dt.strftime('%Y')
@@ -177,7 +177,7 @@ class TradingBotManager:
             pnl_data['yearly'][year_key][quote_currency] += trade_value
             pnl_data['total'][quote_currency] += trade_value
 
-        # چاپ خروجی مرتب و خوانا
+        # Print clean and readable output
         print("\n" + "="*40)
         print("📊 Total Overall PnL (Cash Flow)")
         for currency, val in pnl_data['total'].items():

@@ -4,111 +4,111 @@ import asyncio
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 
-# ایمپورت کردن مدیریت ربات که قبلاً ساختیم
+# Import the bot manager we created previously
 from bot_manager import TradingBotManager
 
 # ==========================================
-# تنظیمات کلیدها (حتماً توکن ربات تلگرام خود را از @BotFather بگیرید)
+# Key settings (Make sure to get your Telegram bot token from @BotFather)
 # ==========================================
 TELEGRAM_BOT_TOKEN = 'YOUR_TELEGRAM_BOT_TOKEN'
 NOBITEX_API_KEY = 'YOUR_NOBITEX_API_KEY'
 NOBITEX_SECRET_KEY = 'YOUR_NOBITEX_SECRET_KEY'
 
-# ساخت یک نمونه از مدیریت معاملات
+# Instantiate the trading bot manager
 print("Initializing Bot Manager...")
 bot_manager = TradingBotManager(api_key=NOBITEX_API_KEY, secret=NOBITEX_SECRET_KEY)
 
 # ==========================================
-# ساخت دکمه‌های شیشه‌ای (Inline Keyboards)
+# Create Inline Keyboards
 # ==========================================
 def get_main_menu():
     keyboard = [
-        [InlineKeyboardButton("💰 موجودی حساب", callback_data='balance')],
-        [InlineKeyboardButton("📋 سفارشات باز", callback_data='open_orders'),
-         InlineKeyboardButton("❌ بستن همه سفارشات", callback_data='cancel_all')],
-        [InlineKeyboardButton("📖 تاریخچه و سود/زیان", callback_data='history_pnl')],
-        [InlineKeyboardButton("🛒 ثبت سفارش (راهنما)", callback_data='help_order')]
+        [InlineKeyboardButton("💰 Account Balance", callback_data='balance')],
+        [InlineKeyboardButton("📋 Open Orders", callback_data='open_orders'),
+         InlineKeyboardButton("❌ Cancel All Orders", callback_data='cancel_all')],
+        [InlineKeyboardButton("📖 Trade History & PnL", callback_data='history_pnl')],
+        [InlineKeyboardButton("🛒 Place Order (Help)", callback_data='help_order')]
     ]
     return InlineKeyboardMarkup(keyboard)
 
 # ==========================================
-# دستورات ربات
+# Bot Commands
 # ==========================================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """شروع ربات و نمایش منوی اصلی"""
-    welcome_msg = "👋 به ربات معامله‌گر نوبیتکس خوش آمدید!\nیک گزینه را انتخاب کنید:"
+    """Start the bot and show the main menu"""
+    welcome_msg = "👋 Welcome to the Nobitex Trading Bot!\nPlease select an option:"
     await update.message.reply_text(welcome_msg, reply_markup=get_main_menu())
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """هندلر اصلی برای کلیک روی دکمه‌ها"""
+    """Main handler for button clicks"""
     query = update.callback_query
-    await query.answer() # پاسخ به کلیک کاربر (برای رفع لودینگ دکمه)
+    await query.answer() # Answer the user's click (to remove button loading)
     
     data = query.data
     
     if data == 'balance':
-        await query.edit_message_text("⏳ در حال دریافت موجودی...")
+        await query.edit_message_text("⏳ Fetching balance...")
         try:
             balance = bot_manager.exchange.fetch_balance()
             non_zero = {k: v for k, v in balance.items() if k != 'info' and isinstance(v, dict) and v.get('total') not in [None, 0]}
             if not non_zero:
-                msg = "موجودی غیر صصفر یافت نشد."
+                msg = "No non-zero balance found."
             else:
-                msg = "💰 *موجودی شما:*\n\n"
+                msg = "💰 *Your Balance:*\n\n"
                 for cur, val in non_zero.items():
                     msg += f"  `{cur}`: Free: `{val.get('free')}` | Total: `{val.get('total')}`\n"
             await query.edit_message_text(msg, parse_mode='Markdown', reply_markup=get_main_menu())
         except Exception as e:
-            await query.edit_message_text(f"❌ خطا: {e}", reply_markup=get_main_menu())
+            await query.edit_message_text(f"❌ Error: {e}", reply_markup=get_main_menu())
 
     elif data == 'open_orders':
-        await query.edit_message_text("⏳ در حال دریافت سفارشات باز...")
+        await query.edit_message_text("⏳ Fetching open orders...")
         try:
             orders = bot_manager.get_open_orders()
             if not orders:
-                msg = "📋 شما سفارش باز ندارید."
+                msg = "📋 You have no open orders."
             else:
-                msg = "📋 *سفارشات باز:*\n\n"
-                for o in orders[:5]: # فقط 5 مورد اول
+                msg = "📋 *Open Orders:*\n\n"
+                for o in orders[:5]: # Only the first 5 items
                     msg += f"🆔 `{o['id']}`\n  `{o['symbol']}` | {o['side']} | Amount: `{o['amount']}`\n\n"
             await query.edit_message_text(msg, parse_mode='Markdown', reply_markup=get_main_menu())
         except Exception as e:
-            await query.edit_message_text(f"❌ خطا: {e}", reply_markup=get_main_menu())
+            await query.edit_message_text(f"❌ Error: {e}", reply_markup=get_main_menu())
 
     elif data == 'cancel_all':
-        await query.edit_message_text("⏳ در حال بستن تمام سفارشات باز...")
+        await query.edit_message_text("⏳ Cancelling all open orders...")
         success = bot_manager.cancel_all_open_orders()
         if success:
-            await query.edit_message_text("✅ تمام سفارشات باز با موفقیت بسته شدند.", reply_markup=get_main_menu())
+            await query.edit_message_text("✅ All open orders successfully cancelled.", reply_markup=get_main_menu())
         else:
-            await query.edit_message_text("❌ خطا در بستن سفارشات.", reply_markup=get_main_menu())
+            await query.edit_message_text("❌ Error cancelling orders.", reply_markup=get_main_menu())
 
     elif data == 'history_pnl':
-        await query.edit_message_text("⏳ در حال محاسبه سود و زیان...")
+        await query.edit_message_text("⏳ Calculating PnL...")
         try:
             trades = bot_manager.get_trade_history(limit=50)
             if not trades:
-                msg = "📖 تاریخچه معاملاتی یافت نشد."
+                msg = "📖 No trade history found."
             else:
-                # برای تلگرام، خروجی PnL را کوتاه می‌کنیم
+                # Shorten the PnL output for Telegram
                 pnl_data = bot_manager.calculate_pnl(trades)
-                msg = "📊 *خلاصه سود و زیان (Cash Flow):*\n\n"
+                msg = "📊 *PnL Summary (Cash Flow):*\n\n"
                 for currency, val in pnl_data['total'].items():
                     msg += f"  `{currency}`: `{val:,.2f}`\n"
-                msg += "\nبرای جزئیات روزانه و ماهانه، به لاگ‌های ترمینال نگاه کنید."
+                msg += "\nFor daily and monthly details, check the terminal logs."
             await query.edit_message_text(msg, parse_mode='Markdown', reply_markup=get_main_menu())
         except Exception as e:
-            await query.edit_message_text(f"❌ خطا: {e}", reply_markup=get_main_menu())
+            await query.edit_message_text(f"❌ Error: {e}", reply_markup=get_main_menu())
 
     elif data == 'help_order':
         msg = (
-            "🛒 *راهنمای ثبت سفارش:*\n\n"
-            "برای ثبت سفارش، از دستورات زیر استفاده کنید:\n\n"
-            "خرید: `/buy SYMBOL AMOUNT PRICE`\n"
-            "مثال: `/buy BTC/USDT 0.001 60000`\n\n"
-            "فروش: `/sell SYMBOL AMOUNT PRICE`\n"
-            "مثال: `/sell BTC/USDT 0.001 65000`"
+            "🛒 *Order Placement Guide:*\n\n"
+            "To place an order, use the following commands:\n\n"
+            "Buy: `/buy SYMBOL AMOUNT PRICE`\n"
+            "Example: `/buy BTC/USDT 0.001 60000`\n\n"
+            "Sell: `/sell SYMBOL AMOUNT PRICE`\n"
+            "Example: `/sell BTC/USDT 0.001 65000`"
         )
         await query.edit_message_text(msg, parse_mode='Markdown', reply_markup=get_main_menu())
 
@@ -118,15 +118,15 @@ async def buy_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         amount = float(context.args[1])
         price = float(context.args[2])
         
-        msg = await update.message.reply_text(f"⏳ در حال ثبت سفارش خرید {amount} {symbol} با قیمت {price}...")
+        msg = await update.message.reply_text(f"⏳ Placing buy order for {amount} {symbol} at price {price}...")
         order = bot_manager.place_order(symbol, 'buy', amount, price)
         
         if order:
-            await msg.edit_text(f"✅ سفارش خرید ثبت شد!\n🆔 شناسه: `{order.get('id')}`", parse_mode='Markdown')
+            await msg.edit_text(f"✅ Buy order placed!\n🆔 ID: `{order.get('id')}`", parse_mode='Markdown')
         else:
-            await msg.edit_text("❌ ثبت سفارش ناموفق بود.")
+            await msg.edit_text("❌ Order placement failed.")
     except (IndexError, ValueError):
-        await update.message.reply_text("❌ فرمت اشتباه است. مثال:\n`/buy BTC/USDT 0.001 60000`", parse_mode='Markdown')
+        await update.message.reply_text("❌ Invalid format. Example:\n`/buy BTC/USDT 0.001 60000`", parse_mode='Markdown')
 
 async def sell_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     try:
@@ -134,18 +134,18 @@ async def sell_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         amount = float(context.args[1])
         price = float(context.args[2])
         
-        msg = await update.message.reply_text(f"⏳ در حال ثبت سفارش فروش {amount} {symbol} با قیمت {price}...")
+        msg = await update.message.reply_text(f"⏳ Placing sell order for {amount} {symbol} at price {price}...")
         order = bot_manager.place_order(symbol, 'sell', amount, price)
         
         if order:
-            await msg.edit_text(f"✅ سفارش فروش ثبت شد!\n🆔 شناسه: `{order.get('id')}`", parse_mode='Markdown')
+            await msg.edit_text(f"✅ Sell order placed!\n🆔 ID: `{order.get('id')}`", parse_mode='Markdown')
         else:
-            await msg.edit_text("❌ ثبت سفارش ناموفق بود.")
+            await msg.edit_text("❌ Order placement failed.")
     except (IndexError, ValueError):
-        await update.message.reply_text("❌ فرمت اشتباه است. مثال:\n`/sell BTC/USDT 0.001 60000`", parse_mode='Markdown')
+        await update.message.reply_text("❌ Invalid format. Example:\n`/sell BTC/USDT 0.001 60000`", parse_mode='Markdown')
 
 # ==========================================
-# راه‌اندازی ربات
+# Bot Setup
 # ==========================================
 def main() -> None:
     print("🤖 Telegram Bot is starting...")
