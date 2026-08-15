@@ -21,21 +21,40 @@ class TradingBotManager:
         self.exchange = nobitex(config)
         try:
             self.exchange.load_markets()
-            print("✅ Connected to Nobitex and markets loaded successfully.")
+            print("Connected to Nobitex and markets loaded successfully.")
         except Exception as e:
-            print(f"❌ Error connecting to Nobitex: {e}")
+            print(f"Error connecting to Nobitex: {e}")
+            
+    def get_live_price(self, symbol):
+        """Fetch the current live market price for a symbol"""
+        try:
+            ticker = self.exchange.fetch_ticker(symbol)
+            price = ticker.get('last')
+            if price:
+                print(f"Current Live Price for {symbol}: {price:,.2f}")
+            return price
+        except Exception as e:
+            print(f"Error fetching live price: {e}")
+            return None
 
     def place_order(self, symbol, side, amount, price, simulate=False):
-        """1. Place a spot (Limit) order"""
+        """Place a spot (Limit) order with live price verification"""
         print(f"\n[Placing Spot Order] {side.upper()} {amount} {symbol} @ {price}")
+        
+        # Fetch live price exactly at the moment of execution
+        live_price = self.get_live_price(symbol)
+        if live_price is not None:
+            diff = price - live_price
+            print(f"Your Limit Price ({price:,.2f}) is {diff:+,.2f} away from the current Live Price ({live_price:,.2f})")
+        
         try:
             order = self.exchange.create_order(symbol, 'limit', side, amount, price)
-            print(f"✅ Order placed successfully. Order ID: {order.get('id')}")
+            print(f"Order placed successfully. Order ID: {order.get('id')}")
             return order
         except Exception as e:
             # If the user wants to run a simulation test and the error is related to insufficient balance
             if simulate and "OverValueOrder" in str(e):
-                print("⚠️ Insufficient balance detected. Running in SIMULATION MODE...")
+                print("Insufficient balance detected. Running in SIMULATION MODE...")
                 market = self.exchange.market(symbol)
                 # Create a fake order for testing
                 fake_id = f"SIM-{int(time.time())}"
@@ -57,10 +76,10 @@ class TradingBotManager:
                     self.sim_orders = []
                 self.sim_orders.append(order)
                 
-                print(f"✅ SIMULATED Order placed successfully. Order ID: {order.get('id')}")
+                print(f"SIMULATED Order placed successfully. Order ID: {order.get('id')}")
                 return order
             else:
-                print(f"❌ Error placing order: {e}")
+                print(f"Error placing order: {e}")
                 return None
 
     def get_open_orders(self, symbol=None):
@@ -78,7 +97,7 @@ class TradingBotManager:
                 print(f"  ID: {o['id']} | {o['symbol']} | Side: {o['side']} | Amount: {o['amount']} | Price: {o['price']}")
             return orders
         except Exception as e:
-            print(f"❌ Error fetching open orders: {e}")
+            print(f"Error fetching open orders: {e}")
             return []
 
     def cancel_order(self, order_id, symbol=None):
@@ -86,10 +105,10 @@ class TradingBotManager:
         print(f"\n[Cancelling Order ID: {order_id}]")
         try:
             res = self.exchange.cancel_order(order_id, symbol)
-            print("✅ Order cancelled successfully.")
+            print("Order cancelled successfully.")
             return res
         except Exception as e:
-            print(f"❌ Error cancelling order: {e}")
+            print(f"Error cancelling order: {e}")
             return None
 
     def cancel_all_open_orders(self, symbol=None):
@@ -100,7 +119,7 @@ class TradingBotManager:
             open_orders = self.exchange.fetch_open_orders(symbol)
             
             if not open_orders:
-                print("✅ No open orders to cancel.")
+                print("No open orders to cancel.")
                 return True
                 
             print(f"Found {len(open_orders)} open orders. Cancelling them one by one...")
@@ -111,15 +130,15 @@ class TradingBotManager:
                 order_symbol = order['symbol']
                 try:
                     self.exchange.cancel_order(order_id, order_symbol)
-                    print(f"  ❌ Cancelled Order ID: {order_id} ({order_symbol})")
+                    print(f"  Cancelled Order ID: {order_id} ({order_symbol})")
                     cancelled_count += 1
                 except Exception as e_inner:
-                    print(f"  ⚠️ Failed to cancel Order ID {order_id}: {e_inner}")
+                    print(f"  Failed to cancel Order ID {order_id}: {e_inner}")
                     
-            print(f"✅ Successfully cancelled {cancelled_count} out of {len(open_orders)} orders.")
+            print(f"Successfully cancelled {cancelled_count} out of {len(open_orders)} orders.")
             return True
         except Exception as e:
-            print(f"❌ Error cancelling all open orders: {e}")
+            print(f"Error cancelling all open orders: {e}")
             return False
 
     def get_trade_history(self, symbol=None, limit=50):
@@ -127,10 +146,10 @@ class TradingBotManager:
         print("\n[Fetching Trade History]")
         try:
             trades = self.exchange.fetch_my_trades(symbol, limit=limit)
-            print(f"✅ Found {len(trades)} executed trades.")
+            print(f"Found {len(trades)} executed trades.")
             return trades
         except Exception as e:
-            print(f"❌ Error fetching history: {e}")
+            print(f"Error fetching history: {e}")
             return []
 
     def calculate_pnl(self, trades):

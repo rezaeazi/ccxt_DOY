@@ -2,10 +2,10 @@ import time
 from bot_manager import TradingBotManager
 
 def main():
-    NOBITEX_TOKEN = 'Your_Token_Here'.strip()
+    NOBITEX_TOKEN = 'YOUR_TOKEN_HERE'.strip()
     
     if NOBITEX_TOKEN == 'YOUR_TOKEN_HERE':
-        print("❌ Please place your Nobitex Token in the code!")
+        print("Please place your Nobitex Token in the code!")
         return
         
     print("🚀 Initializing Bot Manager...")
@@ -15,7 +15,7 @@ def main():
         print("\n" + "="*40)
         print("📋 TEST CONTROL PANEL (Simulation Enabled)")
         print("="*40)
-        print("1. Place a Smart Limit Order")
+        print("1. Place an Order (Live Price Verification)")
         print("2. View Open Orders")
         print("3. Cancel ALL Open Orders")
         print("4. View Trade History & PnL")
@@ -26,46 +26,48 @@ def main():
         
         if choice == '1':
             symbol = input("Enter Symbol (e.g., BTC/USDT): ").upper()
+            
+            # 1. Get and show live price first (Selection Moment)
+            print("\n--- Checking Live Market Price ---")
+            live_price = bot.get_live_price(symbol)
+            if not live_price:
+                print("Could not fetch live price. Cannot proceed.")
+                continue
+                
             side = input("Enter Side (buy/sell): ").lower()
             amount = float(input("Enter Amount (e.g., 0.002): "))
             
-            try:
-                ticker = bot.exchange.fetch_ticker(symbol)
-                current_price = ticker['last']
-                
-                if not current_price:
-                    print("❌ Could not fetch current price.")
-                    continue
-                    
-                print(f"Current market price for {symbol}: {current_price}")
-                
+            # Let user decide their price based on live price
+            user_price_input = input(f"Enter your Limit Price (Press Enter to auto-use ~1% {'below' if side == 'buy' else 'above'} live price): ")
+            
+            if user_price_input.strip() == "":
                 if side == 'buy':
-                    limit_price = current_price * 0.99
+                    limit_price = live_price * 0.99
                 else:
-                    limit_price = current_price * 1.01
-                    
-                print(f"Placing {side} order at limit price: {limit_price:,.2f}")
+                    limit_price = live_price * 1.01
+                print(f"Auto-calculated Limit Price: {limit_price:,.2f}")
+            else:
+                limit_price = float(user_price_input)
                 
-                # Enable simulation mode (simulate=True)
-                order = bot.place_order(symbol, side, amount, limit_price, simulate=True)
-                
-                if order and order.get('id'):
-                    print(f"✅ Success! Order ID: {order.get('id')}")
-                    time.sleep(1)
-                else:
-                    print("❌ Order failed.")
-            except Exception as e:
-                print(f"❌ Error: {e}")
+            print(f"\nPlacing {side} order at limit price: {limit_price:,.2f}")
+            
+            # 2. Place order (Execution Moment - will verify live price again)
+            order = bot.place_order(symbol, side, amount, limit_price, simulate=True)
+            
+            if order and order.get('id'):
+                print(f"Success! Order ID: {order.get('id')}")
+                time.sleep(1)
+            else:
+                print("Order failed.")
             
         elif choice == '2':
             bot.get_open_orders()
             
         elif choice == '3':
             print("\n⏳ Cancelling all open orders...")
-            # Clear simulated orders if they exist
             if hasattr(bot, 'sim_orders'):
                 bot.sim_orders = []
-                print("✅ Simulated orders cleared.")
+                print("Simulated orders cleared.")
             bot.cancel_all_open_orders()
             
         elif choice == '4':
@@ -80,7 +82,7 @@ def main():
             break
             
         else:
-            print("❌ Invalid choice.")
+            print("Invalid choice.")
 
 if __name__ == '__main__':
     main()
