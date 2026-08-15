@@ -278,7 +278,8 @@ class nobitex(Exchange):
         return statuses.get(status, status)
 
     def parse_order(self, order, market=None):
-        timestamp = self.safe_timestamp(order, 'createdAt')
+        # استفاده از safe_integer به جای safe_timestamp برای جلوگیری از باگ CCXT
+        timestamp = self.safe_integer(order, 'createdAt')
         return {
             'id': self.safe_string(order, 'id'),
             'clientOrderId': None,

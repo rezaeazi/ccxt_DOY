@@ -2,7 +2,7 @@ import time
 from bot_manager import TradingBotManager
 
 def main():
-    NOBITEX_TOKEN = 'YOUR_TOKEN_HERE'.strip()
+    NOBITEX_TOKEN = '25bdb775a838154399e51433c17ce5a1f1073053'.strip()
     
     if NOBITEX_TOKEN == 'YOUR_TOKEN_HERE':
         print("Please place your Nobitex Token in the code!")
