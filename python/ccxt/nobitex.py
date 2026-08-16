@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 from ccxt.base.exchange import Exchange
 from ccxt.base.errors import AuthenticationError, OrderNotFound, NotSupported
 
@@ -68,6 +70,13 @@ class nobitex(Exchange):
                     ],
                 },
             },
+            'requiredCredentials': {
+                'apiKey': True,
+                'secret': False,
+            },
+            'options': {
+                'defaultType': 'spot',
+            },
         })
 
     def sign(self, path, api='public', method='GET', params={}, headers=None, body=None):
@@ -87,7 +96,6 @@ class nobitex(Exchange):
                 
             if method == 'POST':
                 # Nobitex strictly requires JSON format for POST methods
-                # We manually convert the body to JSON here so CCXT doesn't convert it to Form-Data
                 headers['Content-Type'] = 'application/json'
                 body = self.json(query)
                 
@@ -278,7 +286,7 @@ class nobitex(Exchange):
         return statuses.get(status, status)
 
     def parse_order(self, order, market=None):
-        # استفاده از safe_integer به جای safe_timestamp برای جلوگیری از باگ CCXT
+        # اصلاح باگ سال 58 هزار با safe_integer
         timestamp = self.safe_integer(order, 'createdAt')
         return {
             'id': self.safe_string(order, 'id'),
@@ -320,7 +328,7 @@ class nobitex(Exchange):
             
         response = self.request('market/orders/add', 'private', 'POST', self.extend(request, params))
         
-        # Check if the Nobitex server returned an error
+        # بررسی ارورهای نوبیتکس
         status = self.safe_string(response, 'status')
         if status != 'ok':
             code = self.safe_string(response, 'code')
