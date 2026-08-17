@@ -2,27 +2,40 @@ import time
 from bot_manager import TradingBotManager
 
 def main():
+
+    NOBITEX_TOKEN = '25bdb775a838154399e51433c17ce5a1f1073053'.strip()
+    WALLEX_TOKEN = '20044|qVVIbPeekDsWueNERBaHkhqL3NUCsPdhehgENE0j'.strip()
+    
     print("Select Exchange to connect:")
     print("1. Nobitex")
     print("2. Wallex")
     ex_choice = input("Enter 1 or 2: ").strip()
 
+    selected_token = None
     if ex_choice == '1':
         exchange_id = 'nobitex'
+        selected_token = NOBITEX_TOKEN
+        if selected_token == 'YOUR_NOBITEX_TOKEN':
+            print("Please place your Nobitex Token in the code!")
+            return
+            
     elif ex_choice == '2':
         exchange_id = 'wallex'
+        selected_token = WALLEX_TOKEN
+        if selected_token == 'YOUR_WALLEX_TOKEN':
+            print("Please place your Wallex Token in the code!")
+            return
+            
     else:
-        print("❌ Invalid choice. Exiting.")
+        print("Invalid choice. Exiting.")
         return
 
-    NOBITEX_TOKEN = 'Your_Token_Here'.strip() # میتوانید توکن والکس یا نوبیتکس را اینجا بگذارید
-    
-    print(f"🚀 Initializing Bot Manager for {exchange_id}...")
-    bot = TradingBotManager(exchange_id=exchange_id, api_key=NOBITEX_TOKEN)
+    print(f"Initializing Bot Manager for {exchange_id}...")
+    bot = TradingBotManager(exchange_id=exchange_id, api_key=selected_token)
     
     while True:
         print("\n" + "="*40)
-        print(f"📋 TEST CONTROL PANEL ({exchange_id.upper()})")
+        print(f"TEST CONTROL PANEL ({exchange_id.upper()})")
         print("="*40)
         print("1. Place an Order (Live Price Verification)")
         print("2. View Open Orders")
@@ -52,10 +65,10 @@ def main():
             order = bot.place_order(symbol, side, amount, limit_price, simulate=True)
             
             if order and order.get('id'):
-                print(f"✅ Success! Order ID: {order.get('id')}")
+                print(f"Success! Order ID: {order.get('id')}")
                 time.sleep(1)
             else:
-                print("❌ Order failed.")
+                print("Order failed.")
             
         elif choice == '2':
             bot.get_open_orders()
@@ -64,7 +77,7 @@ def main():
             print("\n⏳ Cancelling all open orders...")
             if hasattr(bot, 'sim_orders'):
                 bot.sim_orders = []
-                print("✅ Simulated orders cleared.")
+                print("Simulated orders cleared.")
             bot.cancel_all_open_orders()
             
         elif choice == '4':
@@ -79,7 +92,7 @@ def main():
             break
             
         else:
-            print("❌ Invalid choice.")
+            print("Invalid choice.")
 
 if __name__ == '__main__':
     main()
