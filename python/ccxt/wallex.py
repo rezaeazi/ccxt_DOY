@@ -35,7 +35,8 @@ class wallex(Exchange):
                     'get': ['v1/markets', 'v1/udf/history'],
                 },
                 'private': {
-                    'get': ['v1/account/balances', 'v1/account/openOrders'],
+                    'get': ['v1/account/balances',
+                        'v1/account/withdraw', 'v1/account/openOrders'],
                     'post': ['v1/account/orders'],
                     'delete': ['v1/account/orders'],
                 },
@@ -78,8 +79,8 @@ class wallex(Exchange):
                 'id': id, 'symbol': base + '/' + quote, 'base': base, 'quote': quote,
                 'baseId': base, 'quoteId': quote, 'type': 'spot', 'spot': True, 'active': True,
                 'precision': {
-                    'amount': self.safe_integer(market, 'stepSize') or 8,
-                    'price': self.safe_integer(market, 'tickSize') or 8,
+                    'amount': 8,
+                    'price': 8,
                 },
                 'limits': {
                     'amount': {'min': 0.00000001, 'max': None},
@@ -92,7 +93,7 @@ class wallex(Exchange):
 
     def parse_ticker(self, ticker, market=None):
         timestamp = self.milliseconds()
-        symbol = self.safe_string(market, 'symbol')
+        symbol = self.safe_symbol(self.safe_string(order, 'symbol'), market)
         stats = self.safe_value(ticker, 'stats', {})
         last = self.safe_number(stats, 'lastPrice')
         return self.safe_ticker({
@@ -139,24 +140,37 @@ class wallex(Exchange):
         self.load_markets()
         response = self.request('v1/account/balances', 'private', 'GET', params)
         result = self.safe_value(response, 'result', {})
+        balances_data = self.safe_value(result, 'balances', {})
         balances = {'info': response}
-        values = list(result.values())
-        for i in range(0, len(values)):
-            item = values[i]
-            if item is None or not isinstance(item, dict):
-                continue
-            code = self.safe_string(item, 'asset')
-            if code is None:
-                continue
-            balances[code] = {'free': self.safe_number(item, 'available'), 'used': self.safe_number(item, 'freeze'), 'total': self.safe_number(item, 'balance')}
+        keys = list(balances_data.keys())
+        for i in range(0, len(keys)):
+            code = keys[i]
+            item = self.safe_value(balances_data, code, {})
+            total = self.safe_number(item, 'value')
+            free = total
+            used = self.safe_number(item, 'locked')
+            balances[code] = {'free': free, 'used': used, 'total': total}
         return self.safe_balance(balances)
 
     def create_order(self, symbol, type, side, amount, price=None, params={}):
         self.load_markets()
         market = self.market(symbol)
-        request = {'symbol': market['id'], 'side': side, 'type': type, 'quantity': self.amount_to_precision(symbol, amount)}
+        # دور زدن کامل توابع حساس CCXT و ارسال مستقیم اعداد به صورت استرینگ
+        amount_precision = self.safe_integer(market['precision'], 'amount', 8)
+        # فرمت کردن حجم به صورت استاندارد و حذف اعشار اضافی
+        amount_str = f"{{:.{amount_precision}f}}".format(float(amount)).rstrip('0').rstrip('.')
+        request = {
+            'symbol': market['id'],
+            'side': side,
+            'type': type,
+            'quantity': amount_str,
+        }
         if price is not None:
-            request['price'] = self.price_to_precision(symbol, price)
+            price_precision = self.safe_integer(market['precision'], 'price', 8)
+            # فرمت کردن قیمت به صورت استاندارد برای جلوگیری از ارور scientific notation
+            price_str = f"{{:.{price_precision}f}}".format(float(price)).rstrip('0').rstrip('.')
+            request['price'] = price_str
+            
         response = self.request('v1/account/orders', 'private', 'POST', self.extend(request, params))
         order_data = self.safe_value(response, 'result', response)
         return self.parse_order(order_data, market)
@@ -168,13 +182,57 @@ class wallex(Exchange):
     def parse_order(self, order, market=None):
         id = self.safe_string(order, 'clientOrderId')
         timestamp = self.safe_integer(order, 'transactTime')
-        symbol = self.safe_string(market, 'symbol')
+        symbol = self.safe_symbol(self.safe_string(order, 'symbol'), market)
         return self.safe_order({
             'id': id, 'clientOrderId': id, 'info': order, 'timestamp': timestamp, 'datetime': self.iso8601(timestamp),
             'status': self.safe_string_lower(order, 'status'), 'symbol': symbol, 'type': self.safe_string_lower(order, 'type'),
             'side': self.safe_string_lower(order, 'side'), 'price': self.safe_number(order, 'price'),
             'amount': self.safe_number(order, 'origQty'), 'filled': self.safe_number(order, 'executedQty'),
         }, market)
+
+
+    def fetch_transactions(self, code=None, since=None, limit=None, params={}):
+        self.load_markets()
+        request = {}
+        if limit:
+            request['limit'] = limit
+        transactions = self.safe_value(response, 'result', [])
+        return self.parse_transactions(transactions, code, since, limit)
+
+    def parse_transaction(self, transaction, currency=None):
+        id = self.safe_string(transaction, 'id')
+        type = self.safe_string_lower(transaction, 'type')
+        amount = self.safe_number(transaction, 'amount')
+        status = self.safe_string_lower(transaction, 'status')
+        timestamp = self.safe_timestamp(transaction, 'createdAt') or self.safe_timestamp(transaction, 'time')
+        currency_code = self.safe_string(transaction, 'currency') or self.safe_string(transaction, 'asset')
+        return {
+            'id': id,
+            'info': transaction,
+            'txid': self.safe_string(transaction, 'txHash') or self.safe_string(transaction, 'txid'),
+            'timestamp': timestamp,
+            'datetime': self.iso8601(timestamp),
+            'network': self.safe_string(transaction, 'network'),
+            'address': self.safe_string(transaction, 'address') or self.safe_string(transaction, 'destination'),
+            'type': type,
+            'amount': amount,
+            'currency': currency_code,
+            'status': status,
+            'fee': None,
+        }
+
+    def withdraw(self, code, amount, address, tag=None, params={}):
+        self.load_markets()
+        request = {
+            'asset': code,
+            'amount': str(amount),
+            'address': address,
+            'network': params.get('network', code),
+        }
+        if tag:
+            request['memo'] = tag
+        response = self.request('v1/account/withdraw', 'private', 'POST', self.extend(request, params))
+        return self.parse_transaction(self.safe_value(response, 'result', response))
 
     def fetch_open_orders(self, symbol=None, since=None, limit=None, params={}):
         self.load_markets()

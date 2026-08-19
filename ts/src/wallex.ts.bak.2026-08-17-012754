@@ -1,0 +1,291 @@
+import Exchange from './abstract/exchange.js';
+import { NotSupported } from './base/errors.js';
+import type {
+    Balances,
+    Dict,
+    Int,
+    MarketInterface,
+    OHLCV,
+    Order,
+    Str,
+    Ticker,
+    Tickers,
+} from './base/types.js';
+
+export default class wallex extends Exchange {
+    describe (): any {
+        return this.deepExtend (super.describe (), {
+            'id': 'wallex',
+            'name': 'Wallex',
+            'countries': [ 'IR' ],
+            'version': 'v1',
+            'rateLimit': 200,
+            'urls': {
+                'api': {
+                    'public': 'https://api.wallex.ir',
+                    'private': 'https://api.wallex.ir',
+                },
+                'www': 'https://wallex.ir',
+                'doc': 'https://docs.wallex.ir',
+            },
+            'requiredCredentials': {
+                'apiKey': true,
+                'secret': false,
+            },
+            'has': {
+                'CORS': undefined,
+                'spot': true,
+                'margin': false,
+                'swap': false,
+                'future': false,
+                'option': false,
+                'cancelOrder': true,
+                'createOrder': true,
+                'fetchBalance': true,
+                'fetchCurrencies': false,
+                'fetchMarkets': true,
+                'fetchMyTrades': false,
+                'fetchOHLCV': true,
+                'fetchOpenOrders': true,
+                'fetchOrder': true,
+                'fetchOrders': true,
+                'fetchTicker': true,
+                'fetchTickers': true,
+            },
+            'timeframes': {
+                '1m': '1',
+                '5m': '5',
+                '15m': '15',
+                '30m': '30',
+                '1h': '60',
+                '4h': '240',
+                '1d': 'D',
+            },
+            'api': {
+                'public': {
+                    'get': [
+                        'v1/markets',
+                        'v1/udf/history',
+                    ],
+                },
+                'private': {
+                    'get': [
+                        'v1/account/balances',
+                        'v1/account/openOrders',
+                    ],
+                    'post': [
+                        'v1/orders',
+                    ],
+                    'delete': [
+                        'v1/orders/{id}',
+                    ],
+                },
+            },
+        });
+    }
+
+    sign (path: string, api: string = 'public', method: string = 'GET', params: Dict = {}, headers: Dict = {}, body: Str = undefined): any {
+        const requestPath = this.implodeParams (path, params);
+        let url = this.urls['api'][api] + '/' + requestPath;
+        const query = this.omit (params, this.extractParams (path));
+        if (api === 'private') {
+            this.checkRequiredCredentials ();
+            headers = {
+                'X-API-KEY': this.apiKey,
+                'Content-Type': 'application/json',
+            };
+            if (Object.keys (query).length) {
+                if (method === 'GET') {
+                    url += '?' + this.urlencode (query);
+                } else {
+                    body = this.json (query);
+                }
+            }
+        } else {
+            if (Object.keys (query).length) {
+                url += '?' + this.urlencode (query);
+            }
+        }
+        return { 'url': url, 'method': method, 'body': body, 'headers': headers };
+    }
+
+    async fetchMarkets (params = {}): Promise<MarketInterface[]> {
+        const response = await this.publicGetV1Markets (params);
+        const result = this.safeDict (response, 'result', {});
+        const symbols = this.safeDict (result, 'symbols', {});
+        const keys = Object.keys (symbols);
+        const markets: MarketInterface[] = [];
+        for (let i = 0; i < keys.length; i++) {
+            const id = keys[i];
+            const market = this.safeDict (symbols, id, {});
+            const baseId = this.safeString (market, 'baseAsset');
+            const quoteId = this.safeString (market, 'quoteAsset');
+            if ((baseId === undefined) || (quoteId === undefined)) {
+                continue;
+            }
+            const base = this.safeCurrencyCode (baseId);
+            const quote = this.safeCurrencyCode (quoteId);
+            const symbol = base + '/' + quote;
+            markets.push (this.safeMarketStructure ({
+                'id': id,
+                'symbol': symbol,
+                'base': base,
+                'quote': quote,
+                'baseId': baseId,
+                'quoteId': quoteId,
+                'active': true,
+                'spot': true,
+                'type': 'spot',
+                'precision': {
+                    'price': this.parseNumber (this.parsePrecision (this.safeString (market, 'tickSize', '0'))),
+                    'amount': this.parseNumber (this.parsePrecision (this.safeString (market, 'stepSize', '8'))),
+                },
+                'limits': {
+                    'amount': {
+                        'min': this.safeNumber (market, 'minQty'),
+                        'max': undefined,
+                    },
+                    'price': {
+                        'min': undefined,
+                        'max': undefined,
+                    },
+                    'cost': {
+                        'min': this.safeNumber (market, 'minNotional'),
+                        'max': undefined,
+                    },
+                    'leverage': {
+                        'min': undefined,
+                        'max': undefined,
+                    },
+                },
+                'info': market,
+            }));
+        }
+        return markets;
+    }
+
+    parseTicker (ticker: Dict, market: MarketInterface | undefined = undefined): Ticker {
+        const marketSymbol = market === undefined ? undefined : market['symbol'];
+        const stats = this.safeDict (ticker, 'stats', {});
+        const last = this.safeNumber (stats, 'lastPrice');
+        return this.safeTicker ({
+            'symbol': this.safeString (ticker, 'symbol', marketSymbol),
+            'timestamp': undefined,
+            'datetime': undefined,
+            'high': this.safeNumber (stats, '24h_highPrice'),
+            'low': this.safeNumber (stats, '24h_lowPrice'),
+            'bid': this.safeNumber (stats, 'bidPrice'),
+            'ask': this.safeNumber (stats, 'askPrice'),
+            'open': undefined,
+            'close': last,
+            'last': last,
+            'baseVolume': this.safeNumber (stats, '24h_volume'),
+            'quoteVolume': this.safeNumber (stats, '24h_quoteVolume'),
+            'info': ticker,
+        }, market);
+    }
+
+    async fetchTicker (symbol: string, params = {}): Promise<Ticker> {
+        await this.loadMarkets ();
+        const market = this.market (symbol);
+        const response = await this.publicGetV1Markets (params);
+        const result = this.safeDict (response, 'result', {});
+        const symbols = this.safeDict (result, 'symbols', {});
+        const ticker = this.safeDict (symbols, market['id']);
+        if (ticker === undefined) {
+            throw new NotSupported (this.id + ' fetchTicker () no ticker for ' + symbol);
+        }
+        return this.parseTicker (ticker, market);
+    }
+
+    async fetchTickers (symbols: Str[] | undefined = undefined, params = {}): Promise<Tickers> {
+        await this.loadMarkets ();
+        const response = await this.publicGetV1Markets (params);
+        const result = this.safeDict (response, 'result', {});
+        const symbolsData = this.safeDict (result, 'symbols', {});
+        const keys = Object.keys (symbolsData);
+        const rawTickers: Dict[] = [];
+        for (let i = 0; i < keys.length; i++) {
+            const key = keys[i];
+            const item = this.safeDict (symbolsData, key, {});
+            rawTickers.push (item);
+        }
+        return this.parseTickers (rawTickers, symbols);
+    }
+
+    async fetchBalance (params = {}): Promise<Balances> {
+        const response = await this.privateGetV1AccountBalances (params);
+        const data = this.safeList (response, 'result', []);
+        const balances: Dict = {};
+        for (let i = 0; i < data.length; i++) {
+            const balance = data[i];
+            const currency = this.safeString (balance, 'currency');
+            if (currency === undefined) {
+                continue;
+            }
+            const free = this.safeNumber (balance, 'free', 0);
+            const used = this.safeNumber (balance, 'locked', 0);
+            balances[currency] = {
+                'free': free,
+                'used': used,
+                'total': this.sum (free, used),
+            };
+        }
+        return this.safeBalance (balances);
+    }
+
+    async fetchOHLCV (symbol: string, timeframe: string = '5m', since: Int = undefined, limit: Int = undefined, params = {}): Promise<OHLCV[]> {
+        await this.loadMarkets ();
+        const market = this.market (symbol);
+        const resolution = this.safeString (this.timeframes, timeframe, timeframe);
+        const request: Dict = {
+            'symbol': market['id'],
+            'resolution': resolution,
+        };
+        if (since !== undefined) {
+            request['from'] = Math.floor (since / 1000);
+        }
+        if (limit !== undefined) {
+            request['countback'] = limit;
+        }
+        const response = await this.publicGetV1UdfHistory (this.extend (request, params));
+        const timestamps = this.safeList (response, 't', []);
+        const opens = this.safeList (response, 'o', []);
+        const highs = this.safeList (response, 'h', []);
+        const lows = this.safeList (response, 'l', []);
+        const closes = this.safeList (response, 'c', []);
+        const volumes = this.safeList (response, 'v', []);
+        const result: OHLCV[] = [];
+        for (let i = 0; i < timestamps.length; i++) {
+            result.push ([
+                this.safeInteger (timestamps, i) * 1000,
+                this.safeNumber (opens, i),
+                this.safeNumber (highs, i),
+                this.safeNumber (lows, i),
+                this.safeNumber (closes, i),
+                this.safeNumber (volumes, i),
+            ]);
+        }
+        return result;
+    }
+
+    async createOrder (symbol: string, type: string, side: string, amount: number, price: number = undefined, params = {}): Promise<Order> {
+        throw new NotSupported (this.id + ' createOrder () is not supported yet');
+    }
+
+    async cancelOrder (id: string, symbol: string = undefined, params = {}): Promise<Order> {
+        throw new NotSupported (this.id + ' cancelOrder () is not supported yet');
+    }
+
+    async fetchOrder (id: string, symbol: string = undefined, params = {}): Promise<Order> {
+        throw new NotSupported (this.id + ' fetchOrder () is not supported yet');
+    }
+
+    async fetchOrders (symbol: string = undefined, since: Int = undefined, limit: Int = undefined, params = {}): Promise<Order[]> {
+        throw new NotSupported (this.id + ' fetchOrders () is not supported yet');
+    }
+
+    async fetchOpenOrders (symbol: string = undefined, since: Int = undefined, limit: Int = undefined, params = {}): Promise<Order[]> {
+        throw new NotSupported (this.id + ' fetchOpenOrders () is not supported yet');
+    }
+}

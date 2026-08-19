@@ -1,4 +1,6 @@
-from ccxt.async_support.base.exchange import Exchange
+import os
+
+sync_code = '''from ccxt.base.exchange import Exchange
 from ccxt.base.errors import AuthenticationError, OrderNotFound, NotSupported
 
 class wallex(Exchange):
@@ -35,8 +37,7 @@ class wallex(Exchange):
                     'get': ['v1/markets', 'v1/udf/history'],
                 },
                 'private': {
-                    'get': ['v1/account/balances',
-                        'v1/account/withdraw', 'v1/account/openOrders'],
+                    'get': ['v1/account/balances', 'v1/account/openOrders'],
                     'post': ['v1/account/orders'],
                     'delete': ['v1/account/orders'],
                 },
@@ -62,8 +63,8 @@ class wallex(Exchange):
                 url += '?' + self.urlencode(query)
         return {'url': url, 'method': method, 'body': body, 'headers': headers}
 
-    async def fetch_markets(self, params={}):
-        response = await self.request('v1/markets', 'public', 'GET', params)
+    def fetch_markets(self, params={}):
+        response = self.request('v1/markets', 'public', 'GET', params)
         result = self.safe_value(response, 'result', {})
         symbols = self.safe_value(result, 'symbols', {})
         keys = list(symbols.keys())
@@ -79,8 +80,8 @@ class wallex(Exchange):
                 'id': id, 'symbol': base + '/' + quote, 'base': base, 'quote': quote,
                 'baseId': base, 'quoteId': quote, 'type': 'spot', 'spot': True, 'active': True,
                 'precision': {
-                    'amount': 8,
-                    'price': 8,
+                    'amount': self.safe_integer(market, 'stepSize') or 8,
+                    'price': self.safe_integer(market, 'tickSize') or 8,
                 },
                 'limits': {
                     'amount': {'min': 0.00000001, 'max': None},
@@ -93,7 +94,7 @@ class wallex(Exchange):
 
     def parse_ticker(self, ticker, market=None):
         timestamp = self.milliseconds()
-        symbol = self.safe_symbol(self.safe_string(order, 'symbol'), market)
+        symbol = self.safe_string(market, 'symbol')
         stats = self.safe_value(ticker, 'stats', {})
         last = self.safe_number(stats, 'lastPrice')
         return self.safe_ticker({
@@ -104,17 +105,17 @@ class wallex(Exchange):
             'quoteVolume': self.safe_number(stats, '24h_quoteVolume'), 'info': ticker,
         }, market)
 
-    async def fetch_ticker(self, symbol, params={}):
-        await self.load_markets()
+    def fetch_ticker(self, symbol, params={}):
+        self.load_markets()
         market = self.market(symbol)
-        response = await self.request('v1/markets', 'public', 'GET', params)
+        response = self.request('v1/markets', 'public', 'GET', params)
         result = self.safe_value(response, 'result', {})
         symbols = self.safe_value(result, 'symbols', {})
         data = self.safe_value(symbols, market['id'], {})
         return self.parse_ticker(data, market)
 
-    async def fetch_ohlcv(self, symbol, timeframe='1m', since=None, limit=None, params={}):
-        await self.load_markets()
+    def fetch_ohlcv(self, symbol, timeframe='1m', since=None, limit=None, params={}):
+        self.load_markets()
         market = self.market(symbol)
         resolution = self.safe_string(self.timeframes, timeframe)
         if resolution is None:
@@ -124,7 +125,7 @@ class wallex(Exchange):
         candles_limit = 500 if limit is None else limit
         from_ts = (now - int(duration * candles_limit)) if since is None else int(since / 1000)
         request = {'symbol': market['id'], 'resolution': resolution, 'from': from_ts, 'to': now}
-        response = await self.request('v1/udf/history', 'public', 'GET', self.extend(request, params))
+        response = self.request('v1/udf/history', 'public', 'GET', self.extend(request, params))
         t = self.safe_list(response, 't', [])
         o = self.safe_list(response, 'o', [])
         h = self.safe_list(response, 'h', [])
@@ -136,53 +137,40 @@ class wallex(Exchange):
             result.append([self.safe_timestamp(t, i), self.safe_number(o, i), self.safe_number(h, i), self.safe_number(l, i), self.safe_number(c, i), self.safe_number(v, i)])
         return self.filter_by_since_limit(result, since, limit, 0)
 
-    async def fetch_balance(self, params={}):
-        await self.load_markets()
-        response = await self.request('v1/account/balances', 'private', 'GET', params)
+    def fetch_balance(self, params={}):
+        self.load_markets()
+        response = self.request('v1/account/balances', 'private', 'GET', params)
         result = self.safe_value(response, 'result', {})
-        balances_data = self.safe_value(result, 'balances', {})
         balances = {'info': response}
-        keys = list(balances_data.keys())
-        for i in range(0, len(keys)):
-            code = keys[i]
-            item = self.safe_value(balances_data, code, {})
-            total = self.safe_number(item, 'value')
-            free = total
-            used = self.safe_number(item, 'locked')
-            balances[code] = {'free': free, 'used': used, 'total': total}
+        values = list(result.values())
+        for i in range(0, len(values)):
+            item = values[i]
+            if item is None or not isinstance(item, dict):
+                continue
+            code = self.safe_string(item, 'asset')
+            if code is None:
+                continue
+            balances[code] = {'free': self.safe_number(item, 'available'), 'used': self.safe_number(item, 'freeze'), 'total': self.safe_number(item, 'balance')}
         return self.safe_balance(balances)
 
-    async def create_order(self, symbol, type, side, amount, price=None, params={}):
-        await self.load_markets()
+    def create_order(self, symbol, type, side, amount, price=None, params={}):
+        self.load_markets()
         market = self.market(symbol)
-        # دور زدن کامل توابع حساس CCXT و ارسال مستقیم اعداد به صورت استرینگ
-        amount_precision = self.safe_integer(market['precision'], 'amount', 8)
-        # فرمت کردن حجم به صورت استاندارد و حذف اعشار اضافی
-        amount_str = f"{{:.{amount_precision}f}}".format(float(amount)).rstrip('0').rstrip('.')
-        request = {
-            'symbol': market['id'],
-            'side': side,
-            'type': type,
-            'quantity': amount_str,
-        }
+        request = {'symbol': market['id'], 'side': side, 'type': type, 'quantity': self.amount_to_precision(symbol, amount)}
         if price is not None:
-            price_precision = self.safe_integer(market['precision'], 'price', 8)
-            # فرمت کردن قیمت به صورت استاندارد برای جلوگیری از ارور scientific notation
-            price_str = f"{{:.{price_precision}f}}".format(float(price)).rstrip('0').rstrip('.')
-            request['price'] = price_str
-            
-        response = await self.request('v1/account/orders', 'private', 'POST', self.extend(request, params))
+            request['price'] = self.price_to_precision(symbol, price)
+        response = self.request('v1/account/orders', 'private', 'POST', self.extend(request, params))
         order_data = self.safe_value(response, 'result', response)
         return self.parse_order(order_data, market)
 
-    async def cancel_order(self, id, symbol=None, params={}):
+    def cancel_order(self, id, symbol=None, params={}):
         request = {'client_id': id}
         return self.request('v1/account/orders', 'private', 'DELETE', self.extend(request, params))
 
     def parse_order(self, order, market=None):
         id = self.safe_string(order, 'clientOrderId')
         timestamp = self.safe_integer(order, 'transactTime')
-        symbol = self.safe_symbol(self.safe_string(order, 'symbol'), market)
+        symbol = self.safe_string(market, 'symbol')
         return self.safe_order({
             'id': id, 'clientOrderId': id, 'info': order, 'timestamp': timestamp, 'datetime': self.iso8601(timestamp),
             'status': self.safe_string_lower(order, 'status'), 'symbol': symbol, 'type': self.safe_string_lower(order, 'type'),
@@ -190,54 +178,21 @@ class wallex(Exchange):
             'amount': self.safe_number(order, 'origQty'), 'filled': self.safe_number(order, 'executedQty'),
         }, market)
 
-
-    async def fetch_transactions(self, code=None, since=None, limit=None, params={}):
-        await self.load_markets()
-        request = {}
-        if limit:
-            request['limit'] = limit
-        transactions = self.safe_value(response, 'result', [])
-        return self.parse_transactions(transactions, code, since, limit)
-
-    def parse_transaction(self, transaction, currency=None):
-        id = self.safe_string(transaction, 'id')
-        type = self.safe_string_lower(transaction, 'type')
-        amount = self.safe_number(transaction, 'amount')
-        status = self.safe_string_lower(transaction, 'status')
-        timestamp = self.safe_timestamp(transaction, 'createdAt') or self.safe_timestamp(transaction, 'time')
-        currency_code = self.safe_string(transaction, 'currency') or self.safe_string(transaction, 'asset')
-        return {
-            'id': id,
-            'info': transaction,
-            'txid': self.safe_string(transaction, 'txHash') or self.safe_string(transaction, 'txid'),
-            'timestamp': timestamp,
-            'datetime': self.iso8601(timestamp),
-            'network': self.safe_string(transaction, 'network'),
-            'address': self.safe_string(transaction, 'address') or self.safe_string(transaction, 'destination'),
-            'type': type,
-            'amount': amount,
-            'currency': currency_code,
-            'status': status,
-            'fee': None,
-        }
-
-    async def withdraw(self, code, amount, address, tag=None, params={}):
-        await self.load_markets()
-        request = {
-            'asset': code,
-            'amount': str(amount),
-            'address': address,
-            'network': params.get('network', code),
-        }
-        if tag:
-            request['memo'] = tag
-        response = await self.request('v1/account/withdraw', 'private', 'POST', self.extend(request, params))
-        return self.parse_transaction(self.safe_value(response, 'result', response))
-
-    async def fetch_open_orders(self, symbol=None, since=None, limit=None, params={}):
-        await self.load_markets()
+    def fetch_open_orders(self, symbol=None, since=None, limit=None, params={}):
+        self.load_markets()
         market = self.market(symbol) if symbol is not None else None
-        response = await self.request('v1/account/openOrders', 'private', 'GET', params)
+        response = self.request('v1/account/openOrders', 'private', 'GET', params)
         result = self.safe_value(response, 'result', {})
         orders = self.safe_value(result, 'orders', [])
         return self.parse_orders(orders, market, since, limit)
+'''
+
+async_code = sync_code.replace('def fetch_markets', 'async def fetch_markets').replace('def fetch_ticker', 'async def fetch_ticker').replace('def fetch_ohlcv', 'async def fetch_ohlcv').replace('def fetch_balance', 'async def fetch_balance').replace('def create_order', 'async def create_order').replace('def cancel_order', 'async def cancel_order').replace('def fetch_open_orders', 'async def fetch_open_orders').replace("response = self.request", "response = await self.request")
+
+with open('/opt/ccxt-new/python/ccxt/wallex.py', 'w') as f:
+    f.write(sync_code)
+
+with open('/opt/ccxt-new/python/ccxt/async_support/wallex.py', 'w') as f:
+    f.write(async_code)
+
+print("Wallex files fixed successfully!")
