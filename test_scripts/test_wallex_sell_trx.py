@@ -3,7 +3,7 @@ import math
 sys.path.insert(0, '/opt/ccxt-new/python')
 from ccxt.wallex import wallex
 
-API_KEY = 'YOUR_WALLEX_API_KEY'
+API_KEY = '20103|Am0Xf2b7IEBP1lsS6GOXRjWWVl0bKYoZSiZI3gMN'
 
 exchange = wallex({
     'apiKey': API_KEY,

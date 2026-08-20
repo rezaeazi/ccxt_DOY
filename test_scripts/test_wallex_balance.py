@@ -3,7 +3,7 @@ sys.path.insert(0, '/opt/ccxt-new/python')
 from ccxt.wallex import wallex
 
 # کلید والکس خود را دقیقاً بین کوتیشن‌ها قرار دهید
-API_KEY = 'YOUR_WALLEX_API_KEY'
+API_KEY = '20103|Am0Xf2b7IEBP1lsS6GOXRjWWVl0bKYoZSiZI3gMN'
 
 # حذف فاصله‌های اضافی احتمالی
 API_KEY = API_KEY.strip()
